@@ -223,103 +223,113 @@ def _fallback_report(
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     title = protocol.title if protocol else "实验报告（Demo 模板）"
 
-    # ── Introduction：来自 protocol.objective ────────────
+    # ── Introduction: from protocol.objective ────────────
     if protocol:
         intro = (
-            f"本实验旨在{protocol.objective}。"
-            f"实验前提假设包括：{'; '.join(protocol.assumptions[:3])}。"
+            f"This experiment aimed to {protocol.objective}. "
+            f"Key assumptions included: {'; '.join(protocol.assumptions[:3])}."
         )
     else:
         intro = (
-            "本报告由 DataLab AI 自动生成。"
-            "由于未提供实验方案（Protocol），引言内容有限，建议补充后重新生成。"
+            "This report was generated automatically by DataLab AI. "
+            "No experiment protocol was provided; introduction content is limited. "
+            "Please complete Step 1 (Protocol) and regenerate for a full report."
         )
 
-    # ── Method：来自 equipment / variables / procedure_steps ──
+    # ── Method: from equipment / variables / procedure_steps ──
     if protocol:
-        vars_desc = "、".join(f"{v.name}（{v.unit}）" for v in protocol.variables)
+        vars_desc = ", ".join(f"{v.name} ({v.unit})" for v in protocol.variables)
         steps_desc = "\n".join(
             f"{i+1}. {step}" for i, step in enumerate(protocol.procedure_steps)
         )
         method = (
-            f"**实验设备**：{', '.join(protocol.equipment)}。\n\n"
-            f"**记录变量**：{vars_desc}。\n\n"
-            f"**采样频率**：{protocol.sampling_frequency}。\n\n"
-            f"**实验步骤**：\n{steps_desc}\n\n"
-            f"**控制条件**：{'; '.join(protocol.control_conditions)}。"
+            f"**Equipment**: {', '.join(protocol.equipment)}.\n\n"
+            f"**Recorded variables**: {vars_desc}.\n\n"
+            f"**Sampling frequency**: {protocol.sampling_frequency}.\n\n"
+            f"**Procedure**:\n{steps_desc}\n\n"
+            f"**Control conditions**: {'; '.join(protocol.control_conditions)}."
         )
     else:
-        method = "未提供实验方案，方法章节无法自动生成。请完成方案设计后重新生成报告。"
+        method = (
+            "No experiment protocol was provided; the Method section cannot be generated automatically. "
+            "Please complete Step 1 (Protocol) and regenerate."
+        )
 
-    # ── Results：只引用 analysis.statistics，不编造数值 ──
+    # ── Results: only cite real analysis.statistics values ──
     if analysis:
         stat_lines = []
         for col, s in analysis.statistics.items():
             parts = []
-            if s.mean is not None: parts.append(f"均值 **{s.mean:.4g}**")
+            if s.mean is not None: parts.append(f"mean **{s.mean:.4g}**")
             if s.min is not None and s.max is not None:
-                parts.append(f"范围 [{s.min:.4g}, {s.max:.4g}]")
-            if s.median is not None: parts.append(f"中位数 {s.median:.4g}")
+                parts.append(f"range [{s.min:.4g}, {s.max:.4g}]")
+            if s.median is not None: parts.append(f"median {s.median:.4g}")
             if parts:
-                stat_lines.append(f"- **{col}**：{', '.join(parts)}")
+                stat_lines.append(f"- **{col}**: {', '.join(parts)}")
 
-        stat_block = "\n".join(stat_lines) if stat_lines else "（暂无列统计数据）"
+        stat_block = "\n".join(stat_lines) if stat_lines else "(no column statistics available)"
         high_cnt = sum(1 for i in analysis.issues if i.severity == "high")
         issue_note = (
-            f"其中高严重性问题 {high_cnt} 个" if high_cnt else "严重性均为低/中级别"
+            f"including {high_cnt} high-severity issue(s)" if high_cnt
+            else "all of low or medium severity"
         )
 
         results = (
-            f"数据集 **{analysis.dataset_name}** 共 {analysis.row_count} 行 "
-            f"{analysis.column_count} 列，数据质量评分 **{analysis.quality_score:.1f} / 100**"
-            f"（等级：{analysis.quality_level}）。\n\n"
-            f"**各变量统计概况**：\n{stat_block}\n\n"
-            f"数据质量检查共发现 **{len(analysis.issues)}** 个问题，{issue_note}。\n\n"
-            f"AI 解读置信度：**{analysis.ai_explanation.confidence}**。"
-            f"数据质量对结论的影响：{analysis.ai_explanation.impact_on_conclusion}"
+            f"Dataset **{analysis.dataset_name}** contains {analysis.row_count} rows "
+            f"and {analysis.column_count} columns. "
+            f"Overall data quality score: **{analysis.quality_score:.1f} / 100** ({analysis.quality_level}).\n\n"
+            f"**Variable statistics**:\n{stat_block}\n\n"
+            f"Quality check identified **{len(analysis.issues)}** issue(s), {issue_note}.\n\n"
+            f"AI interpretation confidence: **{analysis.ai_explanation.confidence}**. "
+            f"Impact on conclusion: {analysis.ai_explanation.impact_on_conclusion}"
         )
     else:
         results = (
-            "由于未提供数据分析结果（Analysis），本节无法给出具体实验数值。"
-            "请完成数据分析步骤后重新生成，以获得包含真实统计数值的 Results 章节。"
+            "No analysis data was provided. "
+            "This section cannot report any specific numerical values. "
+            "Please complete Step 2 (Analyze) and regenerate to obtain a Results section with real statistics."
         )
 
-    # ── Discussion：来自 possible_errors / issues / ai_explanation ──
+    # ── Discussion: from possible_errors / issues / ai_explanation ──
     if analysis and analysis.ai_explanation.possible_causes:
-        causes  = "；".join(analysis.ai_explanation.possible_causes[:3])
-        actions = "；".join(analysis.ai_explanation.suggested_actions[:3])
+        causes  = "; ".join(analysis.ai_explanation.possible_causes[:3])
+        actions = "; ".join(analysis.ai_explanation.suggested_actions[:3])
         discussion = (
-            f"**数据异常可能原因**：{causes}。\n\n"
-            f"**建议改进措施**：{actions}。"
+            f"**Possible causes of data anomalies**: {causes}.\n\n"
+            f"**Recommended follow-up actions**: {actions}."
         )
     elif protocol and protocol.possible_errors:
-        errs = "、".join(protocol.possible_errors[:4])
+        errs = "; ".join(protocol.possible_errors[:4])
         discussion = (
-            f"本实验的潜在误差来源包括：{errs}。"
-            "建议在后续实验中针对性地加以控制，以提高数据可靠性。"
+            f"Potential sources of error in this experiment include: {errs}. "
+            "These should be minimised in future trials to improve data reliability."
         )
     else:
-        discussion = "由于数据有限，讨论部分无法提供深入分析。建议补充实验数据后重新生成。"
+        discussion = (
+            "Insufficient data to provide in-depth discussion. "
+            "Please supply complete experimental data and regenerate."
+        )
 
-    # ── Conclusion：只总结数据能支持的，质量低时注明限制 ──
+    # ── Conclusion: summarise only what data supports; note quality limits ──
     if analysis:
         q = analysis.quality_level
         if q in ("Excellent", "Good"):
-            qual_note = "实验结果具有较高可信度，可作为后续研究的参考依据。"
+            qual_note = "The results carry a high degree of credibility and can serve as a reliable reference for future research."
         else:
             qual_note = (
-                f"⚠️ 注意：本次数据质量等级为 {q}，结论存在不确定性，"
-                "建议清理数据质量问题后重新分析再得出定论。"
+                f"⚠️ Note: the data quality level is {q}. "
+                "Conclusions carry uncertainty; it is recommended to resolve the identified quality issues "
+                "and re-analyse before drawing definitive conclusions."
             )
         conclusion = (
-            f"综合以上分析，数据质量评分为 {analysis.quality_score:.1f}/100（{q}）。"
-            f"{qual_note}"
-            " 后续研究可在此基础上扩大样本量，进一步验证实验假设。"
+            f"In summary, the dataset achieved a quality score of {analysis.quality_score:.1f}/100 ({q}). "
+            f"{qual_note} "
+            "Future studies should expand the sample size to further validate the experimental hypothesis."
         )
     else:
         conclusion = (
-            "由于缺乏完整实验数据，目前无法给出确定性结论。"
-            "请在完成数据采集与分析后重新生成报告，以获得有数据支撑的结论。"
+            "A definitive conclusion cannot be drawn due to the absence of experimental data. "
+            "Please complete data collection and analysis, then regenerate the report."
         )
 
     sections = ReportSections(
@@ -329,7 +339,7 @@ def _fallback_report(
         discussion=discussion,
         conclusion=conclusion,
     )
-    footer = f"DataLab AI 自动生成（模板模式） · {now}"
+    footer = f"DataLab AI — auto-generated (template mode) · {now}"
 
     return ReportResponse(
         title=title,
@@ -415,29 +425,31 @@ AI 解读：
     )
 
     # ── System Prompt ─────────────────────────────────────
-    system = """你是一名严谨的科学实验报告写作助手，负责根据真实实验数据生成五章节学术报告。
+    system = """You are a rigorous scientific report writing assistant. Your task is to generate a five-section academic lab report based on real experimental data.
 
-【铁律 — 违反则报告无效】
-1. Results 章节出现的所有具体数值（均值、最小值、最大值、中位数、行数、质量评分等），
-   必须且只能来自用户提供的"真实实验数据"区块中的数字，不得估算、推断或编造。
-2. 若 analysis 数据缺失，Results 章节必须明确写"由于缺少分析数据，无法给出具体数值"，
-   而不是编造任何数字。
-3. Conclusion 只能总结 Results 已展示数据所能支持的结论。
-   若 quality_level 为 Risky 或 Poor，必须在 Conclusion 中注明数据质量限制。
-4. 全程使用中文，语言客观严谨。
-5. 每个章节只输出正文，不要包含章节标题（标题由系统自动添加）。
+[ABSOLUTE RULES — violation renders the report invalid]
+1. Every specific numerical value in the Results section (mean, min, max, median, row count, quality score, etc.)
+   must come exclusively from the "Real Experimental Data" block provided by the user.
+   Do NOT estimate, infer, or fabricate any number.
+2. If analysis data is absent, the Results section MUST explicitly state
+   "Analysis data not available — no specific numerical values can be reported."
+   Do not invent any figures.
+3. Conclusion may only summarise what the Results data already supports.
+   If quality_level is Risky or Poor, the Conclusion MUST note the data quality limitation.
+4. Write entirely in English, in an objective and formal academic tone.
+5. Output only the body of each section — do NOT include section headings (they are added automatically).
 
-【章节写作规则】
-- Introduction：基于 protocol.objective 和用户目标，说明实验背景、目的与科学假设。
-- Method：基于 protocol.equipment、variables、sampling_frequency、procedure_steps，描述实验设计。
-- Results：基于 analysis.quality_score、analysis.statistics、analysis.issues，
-          逐变量列出统计数值（格式：变量名 均值/范围/中位数），并说明数据质量情况。
-- Discussion：基于 protocol.possible_errors、analysis.issues、ai_explanation，
-             分析数据异常原因与实验局限性。
-- Conclusion：只总结数据已支持的结论；质量低时须注明限制。
+[Section writing rules]
+- Introduction: Based on protocol.objective and the user's stated goal; explain the experimental background, purpose, and scientific hypothesis.
+- Method: Based on protocol.equipment, variables, sampling_frequency, and procedure_steps; describe the experimental design.
+- Results: Based on analysis.quality_score, analysis.statistics, and analysis.issues;
+           list each variable's statistics (mean / range / median) and describe data quality.
+- Discussion: Based on protocol.possible_errors, analysis.issues, and ai_explanation;
+              analyse the causes of data anomalies and experimental limitations.
+- Conclusion: Summarise only what the data already supports; note quality limitations when applicable.
 
-【输出格式】
-返回纯 JSON 对象，字段值为含 Markdown 内联格式（**加粗**、- 列表）的文字，不含 # 标题：
+[Output format]
+Return a plain JSON object. Values may use inline Markdown (**bold**, - lists) but must NOT contain # headings:
 {
   "introduction": "...",
   "method": "...",
@@ -445,13 +457,13 @@ AI 解读：
   "discussion": "...",
   "conclusion": "..."
 }
-不要包含任何 ```json``` 代码块标记，直接输出 JSON。"""
+Do NOT wrap the JSON in ```json``` fences — output the raw JSON directly."""
 
-    user_msg = f"""请根据以下数据生成实验报告五个章节：
+    user_msg = f"""Please generate the five sections of a lab report based on the following data:
 
 {data_ctx}{user_req_block}
 
-请严格遵守铁律，直接返回 JSON。"""
+Strictly follow the absolute rules above and return the JSON directly."""
 
     # ── 调用 Claude API ───────────────────────────────────
     resp = client.messages.create(
@@ -523,11 +535,11 @@ async def generate_report(req: ReportRequest) -> ReportResponse:
     # 数据完整性检查 → 填充 warnings
     if req.protocol is None:
         warnings.append(
-            "未提供实验方案（Protocol）—— Introduction / Method 章节内容将有限"
+            "No protocol provided — Introduction and Method sections will have limited content"
         )
     if req.analysis is None:
         warnings.append(
-            "未提供数据分析结果（Analysis）—— Results 章节将无法给出具体实验数值"
+            "No analysis data provided — the Results section cannot report specific experimental values"
         )
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -547,7 +559,7 @@ async def generate_report(req: ReportRequest) -> ReportResponse:
                 discussion=d["discussion"],
                 conclusion=d["conclusion"],
             )
-            footer = f"DataLab AI · Claude 自动生成 · {now}"
+            footer = f"DataLab AI · Generated by Claude · {now}"
 
             return ReportResponse(
                 title=title,
@@ -564,9 +576,9 @@ async def generate_report(req: ReportRequest) -> ReportResponse:
         except Exception as e:
             # Claude 调用失败 → 追加 warning，继续走 fallback
             print(f"[WARN] Claude API 失败，回退模板：{type(e).__name__}: {e}")
-            warnings.append(f"AI 生成失败（{type(e).__name__}），已使用本地模板报告")
+            warnings.append(f"AI generation failed ({type(e).__name__}) — falling back to local template report")
     else:
-        warnings.append("未配置 ANTHROPIC_API_KEY，使用本地模板报告（功能完整，数值来自真实数据）")
+        warnings.append("ANTHROPIC_API_KEY not set — using local template report (values sourced from real data)")
 
     # ── 回退：本地模板 ─────────────────────────────────────
     return _fallback_report(req.protocol, req.analysis, warnings)

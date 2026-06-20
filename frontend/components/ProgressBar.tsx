@@ -11,9 +11,9 @@ import { usePathname } from "next/navigation";
 // ─── 步骤配置 ──────────────────────────────────────────────
 // 每个步骤包含：路径匹配规则、步骤编号、步骤名称
 const STEPS = [
-  { path: "/protocol", step: 1, label: "Protocol",  desc: "实验方案" },
-  { path: "/analyze",  step: 2, label: "Analyze",   desc: "数据分析" },
-  { path: "/report",   step: 3, label: "Report",    desc: "生成报告" },
+  { path: "/protocol", step: 1, label: "Protocol", desc: "Design protocol"  },
+  { path: "/analyze",  step: 2, label: "Analyze",  desc: "Analyze data"    },
+  { path: "/report",   step: 3, label: "Report",   desc: "Generate report" },
 ];
 
 export default function ProgressBar() {

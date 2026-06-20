@@ -35,27 +35,27 @@ import {
 // ============================================================
 
 const DEMO_PROTOCOL: ProtocolOutput = {
-  title: "温度对淀粉酶活性影响实验",
-  objective: "探究不同温度条件下淀粉酶催化淀粉水解的活性变化规律，确定最适反应温度",
-  assumptions: ["环境湿度保持恒定（相对湿度 50%）", "pH 维持在 7.0", "每次实验使用等量新鲜酶液"],
-  equipment: ["恒温水浴锅", "分光光度计（580 nm）", "移液枪（0.5 mL）", "计时器", "碘液"],
+  title: "Effect of Temperature on Amylase Activity",
+  objective: "Investigate how different temperatures affect the catalytic activity of amylase in hydrolyzing starch, and determine the optimal reaction temperature",
+  assumptions: ["Ambient humidity remains constant (50% RH)", "pH maintained at 7.0", "Equal volumes of fresh enzyme solution used each trial"],
+  equipment: ["Thermostatic water bath", "Spectrophotometer (580 nm)", "Micropipette (0.5 mL)", "Stopwatch", "Iodine solution"],
   variables: [
-    { name: "temperature", unit: "°C",  type: "numeric", required: true  },
-    { name: "absorbance",  unit: "AU",  type: "numeric", required: true  },
-    { name: "time",        unit: "s",   type: "time",    required: true  },
+    { name: "temperature", unit: "°C", type: "numeric", required: true },
+    { name: "absorbance",  unit: "AU", type: "numeric", required: true },
+    { name: "time",        unit: "s",  type: "time",    required: true },
   ],
-  sampling_frequency: "每 60 秒记录一次吸光度",
+  sampling_frequency: "Record absorbance every 60 seconds",
   expected_interval_minutes: 1,
   expected_duration_minutes: 30,
   procedure_steps: [
-    "配制 1% 淀粉溶液 50 mL，备用",
-    "将淀粉酶液分别置于 20 °C、37 °C、60 °C 水浴中预热 5 分钟",
-    "各温度组同时加入等量淀粉溶液，立即计时",
-    "每 60 秒取样 0.5 mL，加碘液后在 580 nm 处测吸光度",
-    "记录至吸光度不再下降（反应完成）为止",
+    "Prepare 50 mL of 1% starch solution",
+    "Pre-warm amylase solutions in water baths at 20 °C, 37 °C, and 60 °C for 5 minutes",
+    "Add equal volumes of starch solution to each temperature group simultaneously and start timer",
+    "Take 0.5 mL samples every 60 s, add iodine, and measure absorbance at 580 nm",
+    "Continue until absorbance stops decreasing (reaction complete)",
   ],
-  control_conditions: ["pH 7.0 磷酸缓冲液", "酶液浓度统一为 0.1 mg/mL", "每组实验重复 3 次"],
-  possible_errors: ["人为计时误差（±2 s）", "取样量不一致", "分光光度计示数波动"],
+  control_conditions: ["pH 7.0 phosphate buffer", "Enzyme concentration fixed at 0.1 mg/mL", "3 replicates per group"],
+  possible_errors: ["Manual timing error (±2 s)", "Inconsistent sample volume", "Spectrophotometer reading fluctuation"],
   csv_template: "time,temperature,absorbance",
 };
 
@@ -68,11 +68,11 @@ const DEMO_ANALYSIS: AnalysisOutput = {
   issues: [
     {
       type: "outlier",  severity: "low",    row_index: 45,
-      column: "absorbance", message: "第 45 行吸光度 1.92 超出正常范围", value: 1.92,
+      column: "absorbance", message: "Row 45 absorbance value 1.92 exceeds expected range", value: 1.92,
     },
     {
       type: "missing",  severity: "medium", row_index: 28,
-      column: "temperature", message: "第 28 行 temperature 列为空",
+      column: "temperature", message: "Row 28 temperature column is empty",
     },
   ],
   statistics: {
@@ -83,15 +83,15 @@ const DEMO_ANALYSIS: AnalysisOutput = {
   chart_data: [],
   ai_explanation: {
     possible_causes: [
-      "37 °C 条件下酶活性最高，符合淀粉酶最适温度范围",
-      "60 °C 组吸光度下降缓慢，提示高温导致酶部分失活",
+      "Enzyme activity peaks at 37 °C, consistent with amylase optimal temperature range",
+      "Slow absorbance decrease in the 60 °C group suggests partial enzyme denaturation at high temperature",
     ],
     suggested_actions: [
-      "过滤第 45 行离群值后重新计算各组统计量",
-      "补充第 28 行温度数据（可根据实验记录手册核查）",
+      "Filter row 45 outlier and recalculate group statistics",
+      "Recover row 28 temperature value from lab notebook",
     ],
     impact_on_conclusion:
-      "整体数据质量良好，离群值数量少（1 / 90），对核心结论影响有限",
+      "Overall data quality is good; the single outlier (1/90 rows) has limited impact on core conclusions",
     confidence: "high",
   },
 };
@@ -105,7 +105,7 @@ const SECTION_META = [
   {
     key: "introduction" as const,
     label: "1. Introduction",
-    sublabel: "引言",
+    sublabel: "Background & Aim",
     color: "border-blue-400",
     bg: "bg-blue-50",
     badge: "bg-blue-100 text-blue-700",
@@ -114,7 +114,7 @@ const SECTION_META = [
   {
     key: "method" as const,
     label: "2. Method",
-    sublabel: "实验方法",
+    sublabel: "Procedure",
     color: "border-violet-400",
     bg: "bg-violet-50",
     badge: "bg-violet-100 text-violet-700",
@@ -123,7 +123,7 @@ const SECTION_META = [
   {
     key: "results" as const,
     label: "3. Results",
-    sublabel: "实验结果",
+    sublabel: "Data & Statistics",
     color: "border-emerald-400",
     bg: "bg-emerald-50",
     badge: "bg-emerald-100 text-emerald-700",
@@ -132,7 +132,7 @@ const SECTION_META = [
   {
     key: "discussion" as const,
     label: "4. Discussion",
-    sublabel: "讨论",
+    sublabel: "Analysis",
     color: "border-amber-400",
     bg: "bg-amber-50",
     badge: "bg-amber-100 text-amber-700",
@@ -141,7 +141,7 @@ const SECTION_META = [
   {
     key: "conclusion" as const,
     label: "5. Conclusion",
-    sublabel: "结论",
+    sublabel: "Summary",
     color: "border-teal-400",
     bg: "bg-teal-50",
     badge: "bg-teal-100 text-teal-700",
@@ -347,36 +347,36 @@ export default function ReportPage() {
 
     } catch (err) {
       // 网络层兜底（后端未启动等）——生成纯前端版报告
-      console.error("报告生成失败:", err);
+      console.error("Report generation failed:", err);
 
       const hasProt = Boolean(protocol);
       const hasAna  = hasRealAnalysis;
 
-      // ── 前端最终兜底报告 ─────────────────────────────
+      // ── frontend-only fallback report ────────────────
       const intro = hasProt
-        ? `本实验旨在${protocol!.objective}。实验假设：${protocol!.assumptions.slice(0, 2).join("；")}。`
-        : "（未提供实验目标）";
+        ? `This experiment aimed to ${protocol!.objective}. Key assumptions: ${protocol!.assumptions.slice(0, 2).join("; ")}.`
+        : "(No experiment objective provided)";
 
       const method = hasProt
-        ? `**实验设备**：${protocol!.equipment.join("、")}。\n\n**记录变量**：${protocol!.variables.map((v) => `${v.name}（${v.unit}）`).join("、")}。\n\n**采样频率**：${protocol!.sampling_frequency}。`
-        : "未提供实验方案，方法章节无法生成。";
+        ? `**Equipment**: ${protocol!.equipment.join(", ")}.\n\n**Variables**: ${protocol!.variables.map((v) => `${v.name} (${v.unit})`).join(", ")}.\n\n**Sampling frequency**: ${protocol!.sampling_frequency}.`
+        : "No protocol provided — Method section cannot be generated.";
 
       const results = hasAna
-        ? `数据集 **${analysis!.dataset_name}** 共 ${analysis!.row_count} 行，质量评分 **${analysis!.quality_score} / 100**（${analysis!.quality_level}）。`
-        : "未提供数据分析结果，无法给出具体实验数值。";
+        ? `Dataset **${analysis!.dataset_name}** — ${analysis!.row_count} rows, quality score **${analysis!.quality_score} / 100** (${analysis!.quality_level}).`
+        : "No analysis data provided — specific experimental values cannot be reported.";
 
       const discussion = hasProt && protocol!.possible_errors.length
-        ? `潜在误差来源：${protocol!.possible_errors.slice(0, 3).join("；")}。`
-        : "（后端服务不可用，讨论章节待补充）";
+        ? `Potential sources of error: ${protocol!.possible_errors.slice(0, 3).join("; ")}.`
+        : "(Backend unavailable — discussion section pending)";
 
       const conclusion = hasAna
-        ? `数据质量等级 ${analysis!.quality_level}，${analysis!.quality_level === "Good" || analysis!.quality_level === "Excellent" ? "结论可信度较高。" : "⚠️ 数据质量偏低，结论存在不确定性。"}`
-        : "（缺少数据，无法给出结论）";
+        ? `Data quality level: ${analysis!.quality_level}. ${analysis!.quality_level === "Good" || analysis!.quality_level === "Excellent" ? "Results carry a high degree of credibility." : "⚠️ Data quality is low — conclusions carry uncertainty."}`
+        : "(Insufficient data — no conclusion can be drawn)";
 
-      const md = `# ${protocol?.title ?? "实验报告"}\n\n> ⚠️ 后端服务不可用，以下为前端本地兜底报告\n\n## 1. Introduction\n\n${intro}\n\n## 2. Method\n\n${method}\n\n## 3. Results\n\n${results}\n\n## 4. Discussion\n\n${discussion}\n\n## 5. Conclusion\n\n${conclusion}`;
+      const md = `# ${protocol?.title ?? "Lab Report"}\n\n> ⚠️ Backend unavailable — this is a client-side fallback report\n\n## 1. Introduction\n\n${intro}\n\n## 2. Method\n\n${method}\n\n## 3. Results\n\n${results}\n\n## 4. Discussion\n\n${discussion}\n\n## 5. Conclusion\n\n${conclusion}`;
 
       const fallback: ReportOutput = {
-        title:    protocol?.title ?? "实验报告",
+        title:    protocol?.title ?? "Lab Report",
         markdown: md,
         sections: { introduction: intro, method, results, discussion, conclusion },
         generated_from: {
@@ -384,7 +384,7 @@ export default function ReportPage() {
           has_analysis: hasAna,
           dataset_name: analysis?.dataset_name,
         },
-        warnings: [`后端服务不可用（${String(err).slice(0, 80)}），以下为前端本地兜底报告`],
+        warnings: [`Backend unavailable (${String(err).slice(0, 80)}) — showing client-side fallback report`],
       };
 
       setReport(fallback);
@@ -431,18 +431,18 @@ export default function ReportPage() {
       <div>
         <h1 className="text-3xl font-bold text-slate-800">📄 AI Report Generator</h1>
         <p className="text-slate-500 mt-1 text-sm">
-          整合实验方案与数据分析，由 Claude 生成五章节学术报告。
-          报告中所有数值均来自真实数据，不虚构实验结果。
+          Combines your protocol and analysis — Claude writes a five-section academic report.
+          All numerical values come from real data; no results are fabricated.
         </p>
       </div>
 
       {/* ── 数据来源面板 ──────────────────────────────── */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-slate-700 text-sm">数据来源</h2>
+          <h2 className="font-semibold text-slate-700 text-sm">Data Sources</h2>
           {usingDemo && (
             <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
-              Demo 模式
+              Demo Mode
             </span>
           )}
         </div>
@@ -451,16 +451,16 @@ export default function ReportPage() {
           ok={hasProtocol}
           label={
             hasProtocol
-              ? `实验方案已加载：${protocol!.title}`
-              : "实验方案未填写 —— Introduction / Method 章节内容将有限"
+              ? `Protocol loaded: ${protocol!.title}`
+              : "No protocol — Introduction & Method sections will be limited"
           }
         />
         <SourceBadge
           ok={hasAnalysis}
           label={
             hasAnalysis
-              ? `数据分析已加载：${(analysis as AnalysisOutput).dataset_name}（${(analysis as AnalysisOutput).row_count} 行）`
-              : "数据分析未完成 —— Results 章节将无法给出具体数值"
+              ? `Analysis loaded: ${(analysis as AnalysisOutput).dataset_name} (${(analysis as AnalysisOutput).row_count} rows)`
+              : "No analysis — Results section cannot show real numerical values"
           }
         />
 
@@ -468,26 +468,26 @@ export default function ReportPage() {
         {!hasAnyData && (
           <div className="mt-3 p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
             <p className="text-sm text-amber-800 font-medium">
-              ⚠️ 尚未完成前两步，报告将缺少关键内容
+              ⚠️ Steps 1 & 2 not complete — report will be missing key content
             </p>
             <div className="flex flex-wrap gap-2">
               <Link
                 href="/protocol"
                 className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                → 去填写实验方案
+                → Go to Protocol
               </Link>
               <Link
                 href="/analyze"
                 className="px-3 py-1.5 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
               >
-                → 去上传数据分析
+                → Go to Analyze
               </Link>
               <button
                 onClick={handleLoadDemo}
                 className="px-3 py-1.5 text-xs bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors"
               >
-                ✨ 使用 Demo Data（快速体验）
+                ✨ Load Demo Data (quick start)
               </button>
             </div>
           </div>
@@ -499,7 +499,7 @@ export default function ReportPage() {
             onClick={handleLoadDemo}
             className="text-xs text-slate-400 hover:text-slate-600 underline-offset-2 hover:underline transition-colors"
           >
-            或改用 Demo Data 体验完整功能
+            or load Demo Data to try the full experience
           </button>
         )}
       </div>
@@ -508,21 +508,21 @@ export default function ReportPage() {
       {!report && (
         <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-2">
           <label className="block text-sm font-semibold text-slate-700">
-            报告格式要求 <span className="font-normal text-slate-400">（选填）</span>
+            Report Format Requirements <span className="font-normal text-slate-400">(optional)</span>
           </label>
           <textarea
             value={userReq}
             onChange={(e) => setUserReq(e.target.value)}
             rows={3}
             placeholder={
-              "例如：\n• 使用英文撰写\n• Results 重点分析 temperature 变量\n• Conclusion 给出下一步实验建议"
+              "e.g.\n• Focus Results on the temperature variable\n• Add a next-steps recommendation in Conclusion\n• Keep the tone formal and concise"
             }
             className="w-full p-3 border border-slate-300 rounded-lg text-sm
                        focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none
                        font-mono leading-relaxed placeholder:text-slate-400"
           />
           <p className="text-xs text-slate-400">
-            Claude 会在遵守"数值不编造"铁律的前提下，参考上述格式要求生成报告。
+            Claude will follow the "no fabricated values" rule while honoring your formatting preferences.
           </p>
         </div>
       )}
@@ -539,10 +539,10 @@ export default function ReportPage() {
           {isGenerating ? (
             <>
               <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              Claude 正在生成五章节报告（约 15-25 秒）...
+              Claude is generating the five-section report (15–25 s)...
             </>
           ) : (
-            "🤖 生成实验报告"
+            "🤖 Generate Report"
           )}
         </button>
       )}
@@ -571,9 +571,9 @@ export default function ReportPage() {
                          rounded-lg font-medium hover:bg-slate-700 transition-colors text-sm"
             >
               {copySuccess ? (
-                <>✅ 已复制！可直接粘贴到 Google Docs</>
+                <>✅ Copied! Paste directly into Google Docs</>
               ) : (
-                <>📋 Copy Report（Markdown）</>
+                <>📋 Copy Report (Markdown)</>
               )}
             </button>
 
@@ -583,7 +583,7 @@ export default function ReportPage() {
               className="px-4 py-2.5 bg-white text-slate-600 border border-slate-300
                          rounded-lg font-medium hover:bg-slate-50 transition-colors text-sm"
             >
-              🔄 重新生成
+              🔄 Regenerate
             </button>
 
             {/* 报告标题 */}
@@ -602,7 +602,7 @@ export default function ReportPage() {
                   : "text-slate-500 hover:text-slate-700"
               }`}
             >
-              章节视图
+              Sections
             </button>
             <button
               onClick={() => setActiveTab("raw")}
@@ -612,7 +612,7 @@ export default function ReportPage() {
                   : "text-slate-500 hover:text-slate-700"
               }`}
             >
-              原始 Markdown
+              Raw Markdown
             </button>
           </div>
 
@@ -641,12 +641,12 @@ export default function ReportPage() {
           {/* 数据完整性标签（底部小标签）*/}
           <div className="flex flex-wrap gap-2 text-xs text-slate-500 pt-1">
             <span className="px-2 py-1 bg-slate-100 rounded-full">
-              {report.generated_from.has_protocol ? "✓ 含实验方案" : "✗ 无实验方案"}
+              {report.generated_from.has_protocol ? "✓ Protocol included" : "✗ No protocol"}
             </span>
             <span className="px-2 py-1 bg-slate-100 rounded-full">
               {report.generated_from.has_analysis
-                ? `✓ 含分析数据（${report.generated_from.dataset_name ?? ""}）`
-                : "✗ 无分析数据（Results 数值不可用）"}
+                ? `✓ Analysis included (${report.generated_from.dataset_name ?? ""})`
+                : "✗ No analysis data (Results values unavailable)"}
             </span>
           </div>
 

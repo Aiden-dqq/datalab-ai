@@ -50,22 +50,22 @@ export default function ProtocolPage() {
     <div className="max-w-2xl mx-auto space-y-6">
       {/* 页面标题 */}
       <div>
-        <h1 className="text-3xl font-bold text-slate-800">📋 实验方案</h1>
-        <p className="text-slate-500 mt-1">描述你的实验目标、假设和方法</p>
+        <h1 className="text-3xl font-bold text-slate-800">📋 Experiment Protocol</h1>
+        <p className="text-slate-500 mt-1">Describe your experiment objectives, hypotheses, and methods</p>
       </div>
 
       {/* 表单卡片 */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
-            实验方案描述
+            Protocol Description
           </label>
           {/* textarea：多行文本输入框 */}
           {/* onChange 事件：每次用户输入时调用 setDescription 更新状态 */}
           {/* C++ 类比：每次键盘输入触发回调，description = e.target.value */}
           <textarea
             className="w-full h-40 p-3 border border-slate-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            placeholder="例如：本实验旨在研究温度对酶活性的影响，通过控制变量法..."
+            placeholder="e.g. This experiment investigates the effect of temperature on enzyme activity using a controlled variable approach..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
@@ -77,21 +77,21 @@ export default function ProtocolPage() {
           disabled={!description.trim()} // 空内容时禁用按钮
           className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
         >
-          保存并继续 →
+          Save & Continue →
         </button>
 
         {/* 成功提示（只有 saved=true 时才显示）*/}
         {/* C++ 类比：if (saved) { render success message; } */}
         {saved && (
           <p className="text-center text-green-600 text-sm font-medium">
-            ✅ 已保存！正在跳转到数据分析页...
+            ✅ Saved! Redirecting to data analysis...
           </p>
         )}
       </div>
 
       {/* 占位提示 */}
       <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-        🚧 后续迭代：将接入 AI 辅助生成实验方案、文献检索等功能
+        🚧 Coming soon: AI-assisted protocol generation and literature search
       </div>
     </div>
   );

@@ -23,7 +23,7 @@ export default function HomePage() {
           🧪 DataLab AI
         </h1>
         <p className="text-xl text-slate-500">
-          智能实验工作流平台 — 从方案到报告，一步到位
+          AI-Powered Lab Workflow — From Protocol to Report
         </p>
       </div>
 
@@ -39,7 +39,7 @@ export default function HomePage() {
           <h2 className="text-lg font-semibold text-slate-800 group-hover:text-blue-600">
             Step 1: Protocol
           </h2>
-          <p className="text-sm text-slate-500 mt-1">填写实验方案与目标</p>
+          <p className="text-sm text-slate-500 mt-1">Design your experiment protocol</p>
         </Link>
 
         {/* 卡片 2：数据分析 */}
@@ -51,7 +51,7 @@ export default function HomePage() {
           <h2 className="text-lg font-semibold text-slate-800 group-hover:text-blue-600">
             Step 2: Analyze
           </h2>
-          <p className="text-sm text-slate-500 mt-1">上传数据，AI 辅助分析</p>
+          <p className="text-sm text-slate-500 mt-1">Upload data, AI-assisted analysis</p>
         </Link>
 
         {/* 卡片 3：生成报告 */}
@@ -63,7 +63,7 @@ export default function HomePage() {
           <h2 className="text-lg font-semibold text-slate-800 group-hover:text-blue-600">
             Step 3: Report
           </h2>
-          <p className="text-sm text-slate-500 mt-1">自动生成实验报告</p>
+          <p className="text-sm text-slate-500 mt-1">Auto-generate a structured report</p>
         </Link>
       </div>
 
@@ -72,7 +72,7 @@ export default function HomePage() {
         href="/protocol"
         className="mt-4 px-8 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-md"
       >
-        开始实验 →
+        Get Started →
       </Link>
     </div>
   );

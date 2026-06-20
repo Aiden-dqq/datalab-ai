@@ -23,7 +23,7 @@ import ProgressBar from "@/components/ProgressBar";
 // 类比：HTML 的 <title> 和 <meta name="description">
 export const metadata: Metadata = {
   title: "DataLab AI",
-  description: "智能实验工作流平台",
+  description: "AI-powered lab workflow platform",
 };
 
 // ─── RootLayout 组件 ──────────────────────────────────────
@@ -41,7 +41,7 @@ export default function RootLayout({
 }) {
   return (
     // <html lang="zh"> 设置页面语言，对搜索引擎和屏幕阅读器友好
-    <html lang="zh">
+    <html lang="en">
       {/* <body> 是页面主体，min-h-screen 让页面最少占满整个屏幕高度 */}
       <body className="min-h-screen bg-slate-50 text-slate-900">
         {/* 顶部导航栏：固定在所有页面顶部 */}

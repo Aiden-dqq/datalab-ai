@@ -15,9 +15,9 @@ import { usePathname } from "next/navigation"; // 获取当前 URL 路径的 Hoo
 // 把导航链接写成数组，方便循环渲染，避免重复代码
 // C++ 类比：const vector<NavItem> NAV_ITEMS = {...};
 const NAV_ITEMS = [
-  { href: "/protocol", label: "① 实验方案" },
-  { href: "/analyze",  label: "② 数据分析" },
-  { href: "/report",   label: "③ 生成报告" },
+  { href: "/protocol", label: "① Protocol" },
+  { href: "/analyze",  label: "② Analyze"  },
+  { href: "/report",   label: "③ Report"   },
 ];
 
 // ─── Navbar 组件 ──────────────────────────────────────────

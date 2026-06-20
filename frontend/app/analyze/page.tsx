@@ -52,14 +52,14 @@ export default function AnalyzePage() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-slate-800">🔬 数据分析</h1>
-        <p className="text-slate-500 mt-1">输入实验数据，AI 辅助分析</p>
+        <h1 className="text-3xl font-bold text-slate-800">🔬 Analyze Data</h1>
+        <p className="text-slate-500 mt-1">Upload experiment data for AI-assisted analysis</p>
       </div>
 
       {/* 显示上一步的实验方案（如果有）*/}
       {protocolDesc && (
         <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm">
-          <span className="font-medium text-blue-700">📋 当前实验方案：</span>
+          <span className="font-medium text-blue-700">📋 Current Protocol:</span>
           <p className="text-blue-600 mt-1 line-clamp-2">{protocolDesc}</p>
         </div>
       )}
@@ -67,11 +67,11 @@ export default function AnalyzePage() {
       <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
-            实验数据 / 观察记录
+            Experiment Data / Observations
           </label>
           <textarea
             className="w-full h-36 p-3 border border-slate-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono"
-            placeholder="粘贴数据或描述观察结果，例如：&#10;组别,温度,酶活性&#10;A,20,45&#10;B,37,98&#10;C,60,12"
+            placeholder="Paste data or describe observations, e.g.:&#10;group,temperature,activity&#10;A,20,45&#10;B,37,98&#10;C,60,12"
             value={analysisInput}
             onChange={(e) => setAnalysisInput(e.target.value)}
           />
@@ -82,7 +82,7 @@ export default function AnalyzePage() {
           disabled={!analysisInput.trim() || isAnalyzing}
           className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
         >
-          {isAnalyzing ? "🤖 AI 分析中..." : "开始分析"}
+          {isAnalyzing ? "🤖 AI Analyzing..." : "Start Analysis"}
         </button>
 
         {/* 分析结果 */}
@@ -95,14 +95,14 @@ export default function AnalyzePage() {
               onClick={() => router.push("/report")}
               className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
             >
-              生成报告 →
+              Generate Report →
             </button>
           </div>
         )}
       </div>
 
       <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-        🚧 后续迭代：将接入真实 AI 分析 API（/api/analyze），支持图表可视化
+        🚧 Coming soon: real AI analysis API (/api/analyze) with chart visualization
       </div>
     </div>
   );
