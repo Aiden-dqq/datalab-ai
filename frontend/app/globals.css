@@ -1,0 +1,7 @@
+/* 这三行是 Tailwind 的"魔法咒语"，必须放在全局 CSS 文件开头 */
+/* @tailwind base      → 重置浏览器默认样式（相当于 #include <cstdlib>）*/
+/* @tailwind components → 导入 Tailwind 组件层 */
+/* @tailwind utilities  → 导入所有工具类（bg-*, text-*, p-* 等）*/
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

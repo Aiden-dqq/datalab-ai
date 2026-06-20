@@ -1,0 +1,7 @@
+# Python 依赖文件（相当于 C++ 项目的 CMakeLists.txt 里的 target_link_libraries）
+# 用 pip install -r requirements.txt 安装所有依赖
+
+fastapi==0.115.5        # Web 框架核心
+uvicorn[standard]==0.32.1   # ASGI 服务器（[standard] 包含 websockets 和 httptools 加速）
+pydantic==2.10.3        # 数据验证库（FastAPI 内部也依赖它）
+python-dotenv==1.0.1    # 读取 .env 环境变量文件（后续配置 API Key 用）

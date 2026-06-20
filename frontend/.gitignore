@@ -1,0 +1,11 @@
+# Next.js 构建产物
+.next/
+out/
+
+# Node.js 依赖（体积很大，通过 package.json 重新安装）
+node_modules/
+
+# 环境变量（可能含密钥，不要提交）
+.env
+.env.local
+.env.*.local
