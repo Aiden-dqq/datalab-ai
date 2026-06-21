@@ -93,10 +93,11 @@ export type AnalysisOutput = {
     // 问题类型：
     //   "missing"     → 缺失值（某格为空）
     //   "duplicate"   → 重复行
-    //   "non_numeric" → 应该是数字但不是
+    //   "non_numeric" → 应该是数字但不是（纯文本，无法转换）
+    //   "format"      → 格式错误（含千分位/单位/符号等，清洗后可转为数字）
     //   "time_gap"    → 时间序列中有异常跳跃
     //   "outlier"     → 统计离群值
-    type: "missing" | "duplicate" | "non_numeric" | "time_gap" | "outlier";
+    type: "missing" | "duplicate" | "non_numeric" | "format" | "time_gap" | "outlier";
 
     // 严重程度：低 / 中 / 高
     severity: "low" | "medium" | "high";

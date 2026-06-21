@@ -28,6 +28,7 @@ import io                       # 把字符串/字节当文件读（给 pandas�
 import json                     # JSON 字符串 <-> Python 对象
 import math                     # isnan / isinf 判断
 import base64                   # 解码前端传来的 base64 二进制（Excel / 图片）
+import re                       # 正则：格式错误/非数字值的判别
 from typing import Optional, Any
 
 import pandas as pd             # 数据分析主库（这一步的核心）
@@ -233,8 +234,107 @@ def _numeric_columns(df: pd.DataFrame, num_df: pd.DataFrame) -> list[str]:
 
 
 # ─────────────────────────────────────────────────────────────
-# 2. 确定性检测：缺失值 / 重复行 / IQR 离群点
+# 2. 确定性检测：缺失 / 重复 / 非数字 / 格式错误 / 时间间隔异常 / IQR 离群
 # ─────────────────────────────────────────────────────────────
+
+# ── 非数字 / 格式错误：数值列里"非空但转不成数字"的单元格再细分 ──
+#   format       = 清掉常见格式垃圾（千分位逗号 / 货币符 / 百分号 / 单位 / 空格）
+#                  后能解析成数字 → "格式错误"，可修复
+#   non_numeric  = 怎么清都不是数字（纯文本，如 "N/A"、"错误"）→ 真的非数值
+def _classify_bad_cell(raw: Any) -> str:
+    s = str(raw).strip()
+    cleaned = (s.replace(",", "").replace("，", "")
+                .replace("%", "").replace("$", "").replace("¥", "")
+                .replace(" ", "").replace("　", ""))
+    try:
+        float(cleaned)
+        return "format"             # 清洗后是数字 → 格式问题
+    except ValueError:
+        pass
+    # 再试抓开头的数字（处理 "25C"、"30kg"、"12.5℃" 这类带单位的）
+    m = re.match(r"^[-+]?\d*\.?\d+", cleaned)
+    if m:
+        try:
+            float(m.group())
+            return "format"
+        except ValueError:
+            pass
+    return "non_numeric"            # 彻底不是数字
+
+
+def _bad_numeric_cells(
+    df: pd.DataFrame, num_df: pd.DataFrame, numeric_cols: list[str],
+) -> list[tuple]:
+    """
+    找出数值列里"非空但无法直接转成数字"的单元格，返回 (行号, 列名, 原值, 分类)。
+    分类为 'format'(格式错误) 或 'non_numeric'(非数字值)。
+    ★ 空单元格已由缺失值检测覆盖，这里只看"有值但不是数字"的，避免重复报。
+    """
+    out: list[tuple] = []
+    for col in numeric_cols:
+        # 原值非空 且 强转数字后为 NaN → 坏单元格
+        bad_mask = df[col].notna() & num_df[col].isna()
+        for r in df.index[bad_mask].tolist():
+            raw = df[col].loc[r]
+            out.append((int(r), str(col), raw, _classify_bad_cell(raw)))
+    return out
+
+
+# ── 时间间隔异常：时间列相邻间隔不规律 ──
+_TIME_COL_HINTS = ("time", "时间", "timestamp", "date", "日期", "datetime")
+
+
+def _find_time_column(df: pd.DataFrame) -> Optional[str]:
+    """按列名启发式找"时间列"（找不到返回 None，避免在非时序数据上误报）。"""
+    for col in df.columns:
+        name = str(col).strip().lower()
+        if any(h in name for h in _TIME_COL_HINTS):
+            return col
+    return None
+
+
+def _time_gap_anomalies(df: pd.DataFrame) -> list[tuple]:
+    """
+    检测时间列的间隔异常，返回 (行号, 列名, 描述, 严重度)。
+    规则：以相邻行时间差的中位数为"正常步长"——
+      - 时间差 <= 0          → 时间未递增（重复/顺序错乱），high
+      - 偏离正常步长 50% 以上 → 漏采/多采，medium
+    只在能找到时间列、且数据点足够时才跑。
+    """
+    col = _find_time_column(df)
+    if col is None:
+        return []
+    # 时间值：先按数字解析（如 0/30/60 秒），不行再按日期解析转成秒
+    series = pd.to_numeric(df[col], errors="coerce")
+    if series.notna().sum() < 3:
+        dt = pd.to_datetime(df[col], errors="coerce")
+        if dt.notna().sum() < 3:
+            return []
+        series = dt.astype("int64") / 1e9     # 纳秒 → 秒
+    diffs = series.diff()                      # 相邻差，第一行为 NaN
+    nonzero = diffs.dropna()
+    nonzero = nonzero[nonzero != 0]
+    if len(nonzero) < 2:
+        return []
+    step = float(nonzero.median())             # 正常步长
+    if step == 0:
+        return []
+    out: list[tuple] = []
+    for r in df.index[1:]:                      # 从第 2 行起才有"与上一行的差"
+        d = diffs.loc[r]
+        if pd.isna(d):
+            continue
+        d = float(d)
+        if d <= 0:
+            out.append((int(r), str(col),
+                        f"第 {int(r)} 行时间未递增（与上一行间隔 {_num(d)}，疑似重复或顺序错乱）",
+                        "high"))
+        elif abs(d - step) > 0.5 * abs(step):
+            out.append((int(r), str(col),
+                        f"第 {int(r)} 行时间间隔 {_num(d)} 偏离正常步长 {_num(step)}（疑似漏采/多采）",
+                        "medium"))
+    return out
+
 
 def _detect_issues(
     df: pd.DataFrame,
@@ -242,7 +342,8 @@ def _detect_issues(
     numeric_cols: list[str],
 ) -> list[dict]:
     """
-    跑三类纯程序检测，返回 issues 列表（每个元素对应前端的一条问题）。
+    跑多类纯程序检测（缺失 / 重复 / 非数字 / 格式错误 / 时间间隔异常 / 离群），
+    返回 issues 列表（每个元素对应前端的一条问题）。
 
     返回的每条形如：
       {"type": "...", "severity": "...", "row_index": i,
@@ -311,6 +412,37 @@ def _detect_issues(
                 "value": _num(val),
             })
 
+    # ── (d) 非数字值 / 格式错误：数值列里"有值但不是数字"的单元格 ──
+    for r, col, raw, kind in _bad_numeric_cells(df, num_df, numeric_cols):
+        if kind == "format":
+            issues.append({
+                "type": "format",
+                "severity": "medium",
+                "row_index": r,
+                "column": col,
+                "message": f"第 {r} 行 {col} 列的值「{raw}」格式有误（含千分位/单位/符号等，清洗后可转为数字）",
+                "value": str(raw),
+            })
+        else:
+            issues.append({
+                "type": "non_numeric",
+                "severity": "medium",
+                "row_index": r,
+                "column": col,
+                "message": f"第 {r} 行 {col} 列的值「{raw}」不是数字（该列应为数值）",
+                "value": str(raw),
+            })
+
+    # ── (e) 时间间隔异常：时间列相邻间隔不规律 ──
+    for r, col, msg, sev in _time_gap_anomalies(df):
+        issues.append({
+            "type": "time_gap",
+            "severity": sev,
+            "row_index": r,
+            "column": col,
+            "message": msg,
+        })
+
     # ── 排序 + 截断：高严重度优先，最多返回 100 条（保护响应体大小）──
     # 质量分用的是"完整计数"（在 _quality_score 里另算），这里只控制展示数量。
     severity_rank = {"high": 0, "medium": 1, "low": 2}
@@ -351,10 +483,12 @@ def _quality_score(
     numeric_cols: list[str],
 ) -> float:
     """
-    从 100 分开始，按三类问题的"比例"扣分（比例越高扣越多）：
-      - 缺失值：占全部格子的比例   × 40 分权重
-      - 重复行：占全部行的比例     × 30 分权重
-      - 离群点：占数值格子的比例   × 30 分权重
+    从 100 分开始，按各类问题的"比例"扣分（比例越高扣越多）：
+      - 缺失值：       占全部格子的比例   × 40 分权重
+      - 重复行：       占全部行的比例     × 30 分权重
+      - 离群点：       占数值格子的比例   × 30 分权重
+      - 非数字/格式错误：占全部格子的比例 × 30 分权重（数据同样不可用）
+      - 时间间隔异常： 占全部行的比例     × 20 分权重
     最后夹到 [0, 100]，保留 1 位小数。
 
     用"比例"而不是"绝对条数"，保证大小数据集打分口径一致、可复现。
@@ -385,7 +519,18 @@ def _quality_score(
     numeric_cells = n_rows * len(numeric_cols)
     outlier_ratio = outlier_count / numeric_cells if numeric_cells else 0.0
 
-    score = 100.0 - 40.0 * missing_ratio - 30.0 * dup_ratio - 30.0 * outlier_ratio
+    # (d) 非数字 / 格式错误比例（基于全部格子）
+    bad_ratio = len(_bad_numeric_cells(df, num_df, numeric_cols)) / total_cells if total_cells else 0.0
+
+    # (e) 时间间隔异常比例（基于行数）
+    timegap_ratio = len(_time_gap_anomalies(df)) / n_rows if n_rows else 0.0
+
+    score = (100.0
+             - 40.0 * missing_ratio
+             - 30.0 * dup_ratio
+             - 30.0 * outlier_ratio
+             - 30.0 * bad_ratio          # 非数字/格式错误：和缺失一样让数据不可用
+             - 20.0 * timegap_ratio)     # 时间间隔异常：行级问题
     score = max(0.0, min(100.0, score))     # 夹到 [0,100]
     return round(score, 1)
 

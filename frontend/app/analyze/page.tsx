@@ -25,7 +25,8 @@ function qualityColor(level: AnalysisOutput["quality_level"]) {
 function issueTypeLabel(type: string) {
   const labels: Record<string, string> = {
     missing: "缺失值", duplicate: "重复行",
-    non_numeric: "非数字", time_gap: "时间跳跃", outlier: "离群值",
+    non_numeric: "非数字", format: "格式错误",
+    time_gap: "时间跳跃", outlier: "离群值",
   };
   return labels[type] ?? type;
 }
