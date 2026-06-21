@@ -1,6 +1,7 @@
 import os
 import json
 from typing import Optional
+from xmlrpc import client
 
 
 PROTOCOL_JSON_SCHEMA = {
@@ -158,18 +159,14 @@ def generate_protocol(goal: str, constraints: Optional[str] = None) -> dict:
         client = anthropic.Anthropic(api_key=api_key)
 
         response = client.messages.create(
-            model="claude-opus-4-8",
-            max_tokens=16000,
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=4000,
             system=SYSTEM_PROMPT,
-            thinking={"type": "adaptive"},
-            output_config={
-                "format": {
-                    "type": "json_schema",
-                    "schema": PROTOCOL_JSON_SCHEMA,
-                }
-            },
             messages=[
-                {"role": "user", "content": _build_user_prompt(goal, constraints)}
+                {
+                    "role": "user",
+                    "content": _build_user_prompt(goal, constraints),
+                }
             ],
         )
 
@@ -184,6 +181,7 @@ def generate_protocol(goal: str, constraints: Optional[str] = None) -> dict:
             (block.text for block in response.content if block.type == "text"),
             None,
         )
+
         if not text:
             raise ValueError("No text content found in the response")
 
