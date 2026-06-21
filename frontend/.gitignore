@@ -2,6 +2,9 @@
 .next/
 out/
 
+# TypeScript 增量编译缓存（tsc 生成，不需要提交）
+*.tsbuildinfo
+
 # Node.js 依赖（体积很大，通过 package.json 重新安装）
 node_modules/
 
