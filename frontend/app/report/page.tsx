@@ -3,7 +3,7 @@
 // ============================================================
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   loadSession,
@@ -117,17 +117,46 @@ function SectionCard({ meta, content }: { meta: (typeof SECTION_META)[number]; c
   );
 }
 
+// ── Markdown → plain Word-compatible HTML (no class attrs) ─
+function mdToWordHtml(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, (m) => `<pre>${m.replace(/```\w*\n?/g, "")}</pre>`)
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm,  "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm,   "<h1>$1</h1>")
+    .replace(/^---$/gm, "<hr />")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g,     "<em>$1</em>")
+    .replace(/^- (.+)$/gm,     "<li>$1</li>")
+    .replace(/^\d+\. (.+)$/gm, "<li>$1</li>")
+    .replace(/\n\n/g, "</p><p>")
+    .replace(/\n/g,   "<br />");
+}
+
 // ── Main page ──────────────────────────────────────────────
 export default function ReportPage() {
-  const [protocol, setProtocol]         = useState<ProtocolOutput | null>(null);
-  const [analysis, setAnalysis]         = useState<AnalysisOutput | null>(null);
-  const [usingDemo, setUsingDemo]       = useState(false);
-  const [userReq, setUserReq]           = useState("");
-  const [report, setReport]             = useState<ReportOutput | null>(null);
-  const [warnings, setWarnings]         = useState<string[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [copySuccess, setCopySuccess]   = useState(false);
-  const [activeTab, setActiveTab]       = useState<"sections" | "raw">("sections");
+  const [protocol, setProtocol]             = useState<ProtocolOutput | null>(null);
+  const [analysis, setAnalysis]             = useState<AnalysisOutput | null>(null);
+  const [usingDemo, setUsingDemo]           = useState(false);
+  const [userReq, setUserReq]               = useState("");
+  const [report, setReport]                 = useState<ReportOutput | null>(null);
+  const [warnings, setWarnings]             = useState<string[]>([]);
+  const [isGenerating, setIsGenerating]     = useState(false);
+  const [copySuccess, setCopySuccess]       = useState(false);
+  const [activeTab, setActiveTab]           = useState<"sections" | "raw">("sections");
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const downloadRef                         = useRef<HTMLDivElement>(null);
+
+  // close dropdown when clicking outside
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (downloadRef.current && !downloadRef.current.contains(e.target as Node)) {
+        setShowDownloadMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   useEffect(() => {
     const session = loadSession();
@@ -214,6 +243,51 @@ export default function ReportPage() {
     const session = loadSession() ?? {};
     const { report: _r, ...rest } = session;
     saveSession(rest);
+  }
+
+  function handleDownloadPdf() {
+    setShowDownloadMenu(false);
+    window.print();
+  }
+
+  function handleDownloadDoc() {
+    if (!report) return;
+    setShowDownloadMenu(false);
+    const body = mdToWordHtml(report.markdown);
+    const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office'
+  xmlns:w='urn:schemas-microsoft-com:office:word'
+  xmlns='http://www.w3.org/TR/REC-html40'>
+<head><meta charset='utf-8'><title>${report.title}</title>
+<style>
+  body{font-family:Calibri,Arial,sans-serif;font-size:11pt;margin:2.5cm;color:#111}
+  h1{font-size:18pt;font-weight:bold;margin-bottom:12pt}
+  h2{font-size:13pt;font-weight:bold;margin-top:18pt;margin-bottom:6pt;border-bottom:1pt solid #ccc;padding-bottom:3pt}
+  h3{font-size:11pt;font-weight:bold;margin-top:12pt;margin-bottom:4pt}
+  p{line-height:1.6;margin-bottom:8pt}
+  li{line-height:1.6;margin-bottom:4pt;margin-left:18pt}
+  pre{font-family:Consolas,monospace;font-size:9pt;background:#f5f5f5;padding:8pt;border:1pt solid #ddd}
+  strong{font-weight:bold} em{font-style:italic} hr{border:none;border-top:1pt solid #ccc;margin:12pt 0}
+</style></head>
+<body><p>${body}</p></body></html>`;
+    const blob = new Blob([html], { type: "application/msword" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `${report.title.replace(/[^a-z0-9]/gi, "_")}.doc`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleDownloadMd() {
+    if (!report) return;
+    setShowDownloadMenu(false);
+    const blob = new Blob([report.markdown], { type: "text/markdown" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `${report.title.replace(/[^a-z0-9]/gi, "_")}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   const hasProtocol = Boolean(protocol);
@@ -334,9 +408,54 @@ export default function ReportPage() {
         <>
           {/* Action bar */}
           <div className="report-actions">
+            {/* Copy */}
             <button onClick={handleCopy} className="btn btn-dark">
-              {copySuccess ? "✅ Copied! Paste into Google Docs" : "📋 Copy Report (Markdown)"}
+              {copySuccess ? "✅ Copied!" : "📋 Copy Markdown"}
             </button>
+
+            {/* Download dropdown */}
+            <div className="download-dropdown" ref={downloadRef}>
+              <button
+                className="btn btn-primary"
+                onClick={() => setShowDownloadMenu((v) => !v)}
+              >
+                ⬇ Export ▾
+              </button>
+              {showDownloadMenu && (
+                <div className="dropdown-menu">
+                  <button className="dropdown-item" onClick={handleDownloadPdf}>
+                    <span className="dropdown-icon">📄</span>
+                    <span>
+                      <strong>PDF</strong>
+                      <span className="dropdown-hint">Browser print → Save as PDF</span>
+                    </span>
+                  </button>
+                  <button className="dropdown-item" onClick={handleDownloadDoc}>
+                    <span className="dropdown-icon">📝</span>
+                    <span>
+                      <strong>Word (.doc)</strong>
+                      <span className="dropdown-hint">Open in Microsoft Word</span>
+                    </span>
+                  </button>
+                  <button className="dropdown-item" onClick={handleDownloadMd}>
+                    <span className="dropdown-icon">📁</span>
+                    <span>
+                      <strong>Markdown (.md)</strong>
+                      <span className="dropdown-hint">Raw text file</span>
+                    </span>
+                  </button>
+                  <div className="dropdown-divider" />
+                  <button className="dropdown-item" onClick={handleCopy}>
+                    <span className="dropdown-icon">📋</span>
+                    <span>
+                      <strong>Copy Markdown</strong>
+                      <span className="dropdown-hint">Paste into Google Docs / Notion</span>
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <button onClick={handleReset} className="btn btn-outline">
               🔄 Regenerate
             </button>

@@ -9,3 +9,25 @@ node_modules/
 .env
 .env.local
 .env.*.local
+
+# Python virtual environment
+backend/venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+backend/.env
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+# Mac system files
+.DS_Store
+
+*.tsbuildinfo
