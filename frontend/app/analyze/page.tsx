@@ -326,11 +326,17 @@ export default function AnalyzePage() {
         throw new Error(errBody.detail ?? `Server error ${response.status}`);
       }
 
-      const data = (await response.json()) as AnalysisOutput;
-      setResult(data);
+const json = await response.json();
 
-      const prev = loadSession() ?? {};
-      saveSession({ ...prev, analysis: data, _lastCsvText: csvText } as typeof prev);
+if (!json.ok) {
+  throw new Error(json.error ?? "Analysis failed");
+}
+
+const analysis = json.data as AnalysisOutput;
+setResult(analysis);
+
+const prev = loadSession() ?? {};
+saveSession({ ...prev, analysis, _lastCsvText: csvText } as typeof prev);
     } catch (e) {
       setError(
         e instanceof Error
