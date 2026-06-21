@@ -5,7 +5,6 @@ from typing import Optional
 from urllib import response
 from xmlrpc import client
 
-from matplotlib import text
 
 PROTOCOL_JSON_SCHEMA = {
     "type": "object",
