@@ -29,6 +29,15 @@ if _sentry_dsn:
 else:
     print("[Sentry] SENTRY_DSN not configured, skipping (local logs only)")
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from arize_setup import setup_arize, get_tracer
+
+setup_arize()
+tracer = get_tracer(__name__)
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -446,7 +455,26 @@ class ProtocolRequest(BaseModel):
 
 @app.post("/api/protocol")
 async def create_protocol(req: ProtocolRequest) -> dict:
-    return generate_protocol(goal=req.goal, constraints=req.constraints)
+    with tracer.start_as_current_span("datalab.generate_protocol") as span:
+        span.set_attribute("datalab.stage", "protocol")
+        span.set_attribute("datalab.feature", "generate_protocol")
+        span.set_attribute("datalab.goal_length", len(req.goal or ""))
+        span.set_attribute("datalab.has_constraints", bool(req.constraints))
+
+        try:
+            result = generate_protocol(
+                goal=req.goal,
+                constraints=req.constraints
+            )
+
+            span.set_attribute("datalab.result_status", "success")
+            return result
+
+        except Exception as e:
+            span.record_exception(e)
+            span.set_attribute("datalab.result_status", "error")
+            span.set_attribute("datalab.error_message", str(e))
+            raise
 
 
 class AnalyzeRequest(BaseModel):
@@ -461,18 +489,52 @@ class AnalyzeRequest(BaseModel):
 
 @app.post("/api/analyze")
 async def create_analysis(req: AnalyzeRequest) -> dict:
-    result = analyze_dataset(
-        csv_text=req.csv_text,
-        dataset_name=req.dataset_name,
-        protocol_context=req.protocol_context,
-        input_kind=req.input_kind,
-        file_base64=req.file_base64,
-        media_type=req.media_type,
-        experiment_steps=req.experiment_steps,
-    )
-    if not result["ok"]:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result["data"]
+    with tracer.start_as_current_span("datalab.analyze_dataset") as span:
+        span.set_attribute("datalab.stage", "analyze")
+        span.set_attribute("datalab.feature", "csv_analysis")
+        span.set_attribute("datalab.dataset_name", req.dataset_name or "experiment.csv")
+        span.set_attribute("datalab.input_kind", req.input_kind or "text")
+        span.set_attribute("datalab.has_protocol_context", bool(req.protocol_context))
+        span.set_attribute("datalab.has_experiment_steps", bool(req.experiment_steps))
+        span.set_attribute("datalab.has_file_base64", bool(req.file_base64))
+
+        try:
+            result = analyze_dataset(
+                csv_text=req.csv_text,
+                dataset_name=req.dataset_name,
+                protocol_context=req.protocol_context,
+                input_kind=req.input_kind,
+                file_base64=req.file_base64,
+                media_type=req.media_type,
+                experiment_steps=req.experiment_steps,
+            )
+
+            if isinstance(result, dict):
+                if "row_count" in result:
+                    span.set_attribute("datalab.row_count", result["row_count"])
+
+                if "column_count" in result:
+                    span.set_attribute("datalab.column_count", result["column_count"])
+
+                if "quality_score" in result:
+                    span.set_attribute("datalab.quality_score", result["quality_score"])
+
+                if "quality_level" in result:
+                    span.set_attribute("datalab.quality_level", result["quality_level"])
+
+                if "issues" in result:
+                    issues = result.get("issues") or []
+                    if isinstance(issues, list):
+                        span.set_attribute("datalab.issue_count", len(issues))
+
+            span.set_attribute("datalab.result_status", "success")
+            return result
+
+        except Exception as e:
+            span.record_exception(e)
+            span.set_attribute("datalab.result_status", "error")
+            span.set_attribute("datalab.error_message", str(e))
+            raise
 
 
 @app.get("/")
@@ -482,11 +544,28 @@ async def root() -> dict:
 
 @app.post("/api/report")
 async def generate_report(req: ReportRequest) -> dict:
-    return build_report(
-        protocol=req.protocol,
-        analysis=req.analysis,
-        user_requirements=req.user_requirements,
-    )
+    with tracer.start_as_current_span("datalab.generate_report") as span:
+        span.set_attribute("datalab.stage", "report")
+        span.set_attribute("datalab.feature", "generate_report")
+        span.set_attribute("datalab.has_protocol", bool(req.protocol))
+        span.set_attribute("datalab.has_analysis", bool(req.analysis))
+        span.set_attribute("datalab.has_user_requirements", bool(req.user_requirements))
+
+        try:
+            result = build_report(
+                protocol=req.protocol,
+                analysis=req.analysis,
+                user_requirements=req.user_requirements,
+            )
+
+            span.set_attribute("datalab.result_status", "success")
+            return result
+
+        except Exception as e:
+            span.record_exception(e)
+            span.set_attribute("datalab.result_status", "error")
+            span.set_attribute("datalab.error_message", str(e))
+            raise
 
 
 if __name__ == "__main__":

@@ -4,34 +4,51 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { loadSession, saveSession, type AnalysisOutput } from "@/lib/session";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Scatter, ScatterChart, ZAxis, Legend,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
   ComposedChart,
+  Line,
 } from "recharts";
 
 function qualityColor(level: AnalysisOutput["quality_level"]) {
   switch (level) {
-    case "Excellent": return "text-green-700 bg-green-50 border-green-200";
-    case "Good":      return "text-blue-700 bg-blue-50 border-blue-200";
-    case "Risky":     return "text-amber-700 bg-amber-50 border-amber-200";
-    case "Poor":      return "text-red-700 bg-red-50 border-red-200";
+    case "Excellent":
+      return "text-green-700 bg-green-50 border-green-200";
+    case "Good":
+      return "text-blue-700 bg-blue-50 border-blue-200";
+    case "Risky":
+      return "text-amber-700 bg-amber-50 border-amber-200";
+    case "Poor":
+      return "text-red-700 bg-red-50 border-red-200";
+    default:
+      return "text-slate-700 bg-slate-50 border-slate-200";
   }
 }
 
 function issueTypeLabel(type: string) {
   const labels: Record<string, string> = {
-    missing: "Missing", duplicate: "Duplicate",
-    non_numeric: "Non-numeric", format: "Format Error",
-    time_gap: "Time Gap", outlier: "Outlier",
+    missing: "Missing",
+    duplicate: "Duplicate",
+    non_numeric: "Non-numeric",
+    format: "Format Error",
+    time_gap: "Time Gap",
+    outlier: "Outlier",
   };
   return labels[type] ?? type;
 }
 
 function severityColor(severity: string) {
   switch (severity) {
-    case "high":   return "bg-red-100 text-red-700";
-    case "medium": return "bg-amber-100 text-amber-700";
-    default:       return "bg-slate-100 text-slate-600";
+    case "high":
+      return "bg-red-100 text-red-700";
+    case "medium":
+      return "bg-amber-100 text-amber-700";
+    default:
+      return "bg-slate-100 text-slate-600";
   }
 }
 
@@ -54,27 +71,30 @@ function DataChart({
   chartData,
   issues,
 }: {
-  chartData: AnalysisOutput["chart_data"];
-  issues: AnalysisOutput["issues"];
+  chartData?: AnalysisOutput["chart_data"];
+  issues?: AnalysisOutput["issues"];
 }) {
-  if (chartData.length === 0) return null;
+  const safeChartData = chartData ?? [];
+  const safeIssues = issues ?? [];
 
-  const xKey = Object.keys(chartData[0])[0];
+  if (safeChartData.length === 0) return null;
 
-  const yKeys = Object.keys(chartData[0]).filter((k) => {
+  const xKey = Object.keys(safeChartData[0])[0];
+
+  const yKeys = Object.keys(safeChartData[0]).filter((k) => {
     if (k === xKey) return false;
-    return chartData.some((row) => typeof row[k] === "number");
+    return safeChartData.some((row) => typeof row[k] === "number");
   });
 
   if (yKeys.length === 0) return null;
 
   const outlierRowSet = new Set(
-    issues
+    safeIssues
       .filter((iss) => iss.type === "outlier" && iss.row_index != null)
       .map((iss) => iss.row_index as number)
   );
 
-  const data = chartData.map((row, idx) => ({
+  const data = safeChartData.map((row, idx) => ({
     ...row,
     _rowIdx: idx,
     _isOutlier: outlierRowSet.has(idx),
@@ -83,15 +103,27 @@ function DataChart({
   const LINE_COLORS = ["#3b82f6", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b"];
 
   function CustomDot(props: {
-    cx?: number; cy?: number;
+    cx?: number;
+    cy?: number;
     payload?: Record<string, unknown>;
     [k: string]: unknown;
   }) {
     const { cx, cy, payload } = props;
     if (cx == null || cy == null) return null;
+
     if (payload?._isOutlier) {
-      return <circle cx={cx} cy={cy} r={5} fill="#ef4444" stroke="#fff" strokeWidth={1.5} />;
+      return (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={5}
+          fill="#ef4444"
+          stroke="#fff"
+          strokeWidth={1.5}
+        />
+      );
     }
+
     return null;
   }
 
@@ -104,9 +136,13 @@ function DataChart({
           Outlier
         </span>
       </div>
+
       <div className="px-4 py-4">
         <ResponsiveContainer width="100%" height={280}>
-          <ComposedChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+          <ComposedChart
+            data={data}
+            margin={{ top: 8, right: 16, left: 0, bottom: 4 }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
             <XAxis
               dataKey={xKey}
@@ -115,9 +151,14 @@ function DataChart({
             />
             <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} width={48} />
             <Tooltip
-              contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }}
+              contentStyle={{
+                fontSize: 12,
+                borderRadius: 8,
+                border: "1px solid #e2e8f0",
+              }}
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
+
             {yKeys.map((key, i) => (
               <Line
                 key={key}
@@ -161,19 +202,29 @@ export default function AnalyzePage() {
     const session = loadSession();
     const proto = session?.protocol as Record<string, unknown> | undefined;
     const title = (proto?.title ?? proto?.description) as string | undefined;
+
     if (title) setProtocolTitle(title);
 
     if (proto) {
       const steps = Array.isArray(proto.procedure_steps)
-        ? (proto.procedure_steps as string[]) : [];
+        ? (proto.procedure_steps as string[])
+        : [];
+
       const equip = Array.isArray(proto.equipment)
-        ? (proto.equipment as string[]) : [];
+        ? (proto.equipment as string[])
+        : [];
+
       const ctx = [
         `Protocol: ${proto.title ?? proto.description ?? ""}`,
         `Objective: ${proto.objective ?? ""}`,
-        steps.length ? `Procedure steps:\n${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}` : "",
+        steps.length
+          ? `Procedure steps:\n${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`
+          : "",
         equip.length ? `Equipment: ${equip.join(", ")}` : "",
-      ].filter(Boolean).join("\n");
+      ]
+        .filter(Boolean)
+        .join("\n");
+
       setProtocolCtx(ctx);
     }
 
@@ -186,6 +237,7 @@ export default function AnalyzePage() {
 
   function readFile(file: File) {
     setFileName(file.name);
+
     const name = file.name.toLowerCase();
     const reader = new FileReader();
 
@@ -193,19 +245,31 @@ export default function AnalyzePage() {
       setInputKind("xlsx");
       setMediaType(null);
       setCsvText("");
-      reader.onload = (e) => setFileBase64(stripDataUrl(e.target?.result as string));
+
+      reader.onload = (e) => {
+        setFileBase64(stripDataUrl(e.target?.result as string));
+      };
+
       reader.readAsDataURL(file);
     } else if (file.type.startsWith("image/")) {
       setInputKind("image");
       setMediaType(file.type);
       setCsvText("");
-      reader.onload = (e) => setFileBase64(stripDataUrl(e.target?.result as string));
+
+      reader.onload = (e) => {
+        setFileBase64(stripDataUrl(e.target?.result as string));
+      };
+
       reader.readAsDataURL(file);
     } else {
       setInputKind("text");
       setFileBase64(null);
       setMediaType(null);
-      reader.onload = (e) => setCsvText(e.target?.result as string);
+
+      reader.onload = (e) => {
+        setCsvText(e.target?.result as string);
+      };
+
       reader.readAsText(file, "UTF-8");
     }
   }
@@ -229,6 +293,7 @@ export default function AnalyzePage() {
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setIsDragging(false);
+
     const file = e.dataTransfer.files?.[0];
     if (file) readFile(file);
   }
@@ -237,6 +302,7 @@ export default function AnalyzePage() {
 
   async function handleAnalyze() {
     if (!hasInput) return;
+
     setIsAnalyzing(true);
     setError(null);
 
@@ -260,14 +326,17 @@ export default function AnalyzePage() {
         throw new Error(errBody.detail ?? `Server error ${response.status}`);
       }
 
-      const data = await response.json() as AnalysisOutput;
+      const data = (await response.json()) as AnalysisOutput;
       setResult(data);
 
       const prev = loadSession() ?? {};
       saveSession({ ...prev, analysis: data, _lastCsvText: csvText } as typeof prev);
-
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error. Please check whether the backend is running.");
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Unknown error. Please check whether the backend is running."
+      );
     } finally {
       setIsAnalyzing(false);
     }
@@ -275,10 +344,12 @@ export default function AnalyzePage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-
       <div>
         <h1 className="text-3xl font-bold text-slate-800">🔬 Data Analysis</h1>
-        <p className="text-slate-500 mt-1">Upload or paste CSV data. The system detects quality issues automatically and AI helps explain them.</p>
+        <p className="text-slate-500 mt-1">
+          Upload or paste CSV data. The system detects quality issues automatically
+          and AI helps explain them.
+        </p>
       </div>
 
       {protocolTitle && (
@@ -289,7 +360,6 @@ export default function AnalyzePage() {
       )}
 
       <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
-
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -304,13 +374,15 @@ export default function AnalyzePage() {
           ].join(" ")}
         >
           <span className="text-3xl">{isDragging ? "📂" : "⬆️"}</span>
+
           <p className="text-sm font-medium text-slate-600">
-            {fileName
-              ? `Selected: ${fileName}`
-              : "Drop a CSV / Excel / image here"}
+            {fileName ? `Selected: ${fileName}` : "Drop a CSV / Excel / image here"}
           </p>
+
           <p className="text-xs text-slate-400">
-            {fileName ? "Click to choose another file" : "Supports .csv / .xlsx / table images, or click to choose a file"}
+            {fileName
+              ? "Click to choose another file"
+              : "Supports .csv / .xlsx / table images, or click to choose a file"}
           </p>
 
           <input
@@ -325,19 +397,29 @@ export default function AnalyzePage() {
 
         {inputKind !== "text" && fileBase64 && (
           <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-            {inputKind === "xlsx" ? "📊 Excel file loaded" : "🖼️ Image loaded (AI will read the table)"}
+            {inputKind === "xlsx"
+              ? "📊 Excel file loaded"
+              : "🖼️ Image loaded (AI will read the table)"}
             : {fileName}
-            <span className="text-blue-400 ml-1">— click "Start Analysis", or paste text below to switch to text mode</span>
+            <span className="text-blue-400 ml-1">
+              — click "Start Analysis", or paste text below to switch to text mode
+            </span>
           </div>
         )}
 
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
-            Data Text <span className="text-slate-400 font-normal">(CSV / tab-separated / semicolon-separated, or paste directly)</span>
+            Data Text{" "}
+            <span className="text-slate-400 font-normal">
+              (CSV / tab-separated / semicolon-separated, or paste directly)
+            </span>
           </label>
+
           <textarea
             className="w-full h-40 p-3 border border-slate-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono"
-            placeholder={"Paste CSV data, e.g.:\ntime,temperature,absorbance\n0,25,0.12\n30,37,0.45\n60,60,0.08"}
+            placeholder={
+              "Paste CSV data, e.g.:\ntime,temperature,absorbance\n0,25,0.12\n30,37,0.45\n60,60,0.08"
+            }
             value={csvText}
             onChange={(e) => {
               setCsvText(e.target.value);
@@ -363,203 +445,298 @@ export default function AnalyzePage() {
         )}
       </div>
 
-      {result && (
-        <div className="space-y-5">
+      {result &&
+        (() => {
+          const issues = result.issues ?? [];
+          const statistics = result.statistics ?? {};
+          const chartData = result.chart_data ?? [];
+          const errorDiagnosis = result.error_diagnosis ?? [];
 
-          <div className={`p-5 border rounded-xl ${qualityColor(result.quality_level)}`}>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium opacity-70">Data Quality Score</p>
-                <p className="text-4xl font-bold mt-1">{result.quality_score}</p>
-                <p className="text-sm mt-1">
-                  Level: <span className="font-semibold">{result.quality_level}</span>
-                  &nbsp;·&nbsp;{result.row_count} rows × {result.column_count} cols
-                  &nbsp;·&nbsp;{result.issues.length} issues found
-                </p>
-              </div>
-              <div className="text-5xl opacity-20 font-black">{result.quality_score}</div>
-            </div>
-          </div>
+          const aiExplanation = result.ai_explanation ?? {
+            confidence: "low",
+            possible_causes: [],
+            suggested_actions: [],
+            impact_on_conclusion:
+              "No AI explanation was returned for this analysis.",
+          };
 
-          {result.issues.length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-                <h2 className="font-semibold text-slate-700">🔍 Detected Issues</h2>
-                <span className="text-xs text-slate-400">{result.issues.length} total</span>
+          return (
+            <div className="space-y-5">
+              <div className={`p-5 border rounded-xl ${qualityColor(result.quality_level)}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium opacity-70">Data Quality Score</p>
+
+                    <p className="text-4xl font-bold mt-1">
+                      {result.quality_score ?? "—"}
+                    </p>
+
+                    <p className="text-sm mt-1">
+                      Level:{" "}
+                      <span className="font-semibold">
+                        {result.quality_level ?? "Unknown"}
+                      </span>
+                      &nbsp;·&nbsp;{result.row_count ?? 0} rows ×{" "}
+                      {result.column_count ?? 0} cols
+                      &nbsp;·&nbsp;{issues.length} issues found
+                    </p>
+                  </div>
+
+                  <div className="text-5xl opacity-20 font-black">
+                    {result.quality_score ?? "—"}
+                  </div>
+                </div>
               </div>
-              <ul className="divide-y divide-slate-50">
-                {result.issues.slice(0, 30).map((issue, i) => (
-                  <li key={i} className="px-5 py-3 flex items-start gap-3 text-sm">
-                    <span className="mt-0.5 px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600 shrink-0">
-                      {issueTypeLabel(issue.type)}
-                    </span>
-                    <span className={`mt-0.5 px-2 py-0.5 rounded text-xs font-medium shrink-0 ${severityColor(issue.severity)}`}>
-                      {issue.severity === "high" ? "High" : issue.severity === "medium" ? "Medium" : "Low"}
-                    </span>
-                    <span className="text-slate-600">{issue.message}</span>
-                  </li>
-                ))}
-              </ul>
-              {result.issues.length > 30 && (
-                <div className="px-5 py-2 text-xs text-slate-400 border-t border-slate-100">
-                  {result.issues.length - 30} more issues not shown
+
+              {issues.length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+                    <h2 className="font-semibold text-slate-700">🔍 Detected Issues</h2>
+                    <span className="text-xs text-slate-400">{issues.length} total</span>
+                  </div>
+
+                  <ul className="divide-y divide-slate-50">
+                    {issues.slice(0, 30).map((issue, i) => (
+                      <li key={i} className="px-5 py-3 flex items-start gap-3 text-sm">
+                        <span className="mt-0.5 px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600 shrink-0">
+                          {issueTypeLabel(issue.type)}
+                        </span>
+
+                        <span
+                          className={`mt-0.5 px-2 py-0.5 rounded text-xs font-medium shrink-0 ${severityColor(issue.severity)}`}
+                        >
+                          {issue.severity === "high"
+                            ? "High"
+                            : issue.severity === "medium"
+                            ? "Medium"
+                            : "Low"}
+                        </span>
+
+                        <span className="text-slate-600">{issue.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {issues.length > 30 && (
+                    <div className="px-5 py-2 text-xs text-slate-400 border-t border-slate-100">
+                      {issues.length - 30} more issues not shown
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
 
-          {Object.keys(result.statistics).length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <div className="px-5 py-3 border-b border-slate-100">
-                <h2 className="font-semibold text-slate-700">📊 Column Statistics</h2>
+              {Object.keys(statistics).length > 0 && (
+                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  <div className="px-5 py-3 border-b border-slate-100">
+                    <h2 className="font-semibold text-slate-700">📊 Column Statistics</h2>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+                          <th className="px-5 py-2 text-left">Column</th>
+                          <th className="px-5 py-2 text-right">Min</th>
+                          <th className="px-5 py-2 text-right">Max</th>
+                          <th className="px-5 py-2 text-right">Mean</th>
+                          <th className="px-5 py-2 text-right">Median</th>
+                        </tr>
+                      </thead>
+
+                      <tbody className="divide-y divide-slate-50">
+                        {Object.entries(statistics).map(([col, stats]) => (
+                          <tr key={col} className="hover:bg-slate-50">
+                            <td className="px-5 py-2.5 font-medium text-slate-700">
+                              {col}
+                            </td>
+                            <td className="px-5 py-2.5 text-right text-slate-500">
+                              {stats.min ?? "—"}
+                            </td>
+                            <td className="px-5 py-2.5 text-right text-slate-500">
+                              {stats.max ?? "—"}
+                            </td>
+                            <td className="px-5 py-2.5 text-right text-slate-500">
+                              {stats.mean ?? "—"}
+                            </td>
+                            <td className="px-5 py-2.5 text-right text-slate-500">
+                              {stats.median ?? "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <DataChart chartData={chartData} issues={issues} />
+
+              <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-semibold text-slate-700">🤖 AI Analysis</h2>
+
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded font-medium ${
+                      aiExplanation.confidence === "high"
+                        ? "bg-green-100 text-green-700"
+                        : aiExplanation.confidence === "medium"
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-slate-100 text-slate-500"
+                    }`}
+                  >
+                    Confidence:{" "}
+                    {aiExplanation.confidence === "high"
+                      ? "High"
+                      : aiExplanation.confidence === "medium"
+                      ? "Medium"
+                      : "Low"}
+                  </span>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                    Possible Causes
+                  </p>
+
+                  {aiExplanation.possible_causes.length > 0 ? (
+                    <ul className="space-y-1">
+                      {aiExplanation.possible_causes.map((cause, i) => (
+                        <li key={i} className="text-sm text-slate-600 flex gap-2">
+                          <span className="text-slate-300 shrink-0">•</span>
+                          {cause}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-slate-400">
+                      No possible causes were returned.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                    Suggested Actions
+                  </p>
+
+                  {aiExplanation.suggested_actions.length > 0 ? (
+                    <ul className="space-y-1">
+                      {aiExplanation.suggested_actions.map((action, i) => (
+                        <li key={i} className="text-sm text-slate-600 flex gap-2">
+                          <span className="text-blue-400 shrink-0">→</span>
+                          {action}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-slate-400">
+                      No suggested actions were returned.
+                    </p>
+                  )}
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-lg text-sm text-slate-600 border border-slate-100">
+                  <span className="font-medium text-slate-700">
+                    Impact on Conclusion:{" "}
+                  </span>
+                  {aiExplanation.impact_on_conclusion}
+                </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
-                      <th className="px-5 py-2 text-left">Column</th>
-                      <th className="px-5 py-2 text-right">Min</th>
-                      <th className="px-5 py-2 text-right">Max</th>
-                      <th className="px-5 py-2 text-right">Mean</th>
-                      <th className="px-5 py-2 text-right">Median</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {Object.entries(result.statistics).map(([col, stats]) => (
-                      <tr key={col} className="hover:bg-slate-50">
-                        <td className="px-5 py-2.5 font-medium text-slate-700">{col}</td>
-                        <td className="px-5 py-2.5 text-right text-slate-500">{stats.min ?? "—"}</td>
-                        <td className="px-5 py-2.5 text-right text-slate-500">{stats.max ?? "—"}</td>
-                        <td className="px-5 py-2.5 text-right text-slate-500">{stats.mean ?? "—"}</td>
-                        <td className="px-5 py-2.5 text-right text-slate-500">{stats.median ?? "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+              <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+                <h2 className="font-semibold text-slate-700">🔧 Error Diagnosis</h2>
+
+                {!hasProtocol && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+                    <p className="text-sm text-amber-800 font-medium">
+                      Tell me your experiment steps so AI can pinpoint which step caused
+                      each problem:
+                    </p>
+
+                    <textarea
+                      className="w-full h-24 p-3 border border-amber-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm"
+                      placeholder={
+                        "Describe each step, e.g.:\n1. Prepare enzyme solution and substrate\n2. Control temperature in a water bath\n3. Mix and start timing\n4. Read absorbance on a spectrophotometer"
+                      }
+                      value={experimentSteps}
+                      onChange={(e) => setExperimentSteps(e.target.value)}
+                    />
+
+                    <button
+                      onClick={handleAnalyze}
+                      disabled={!experimentSteps.trim() || isAnalyzing}
+                      className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {isAnalyzing ? "⏳ Re-analyzing..." : "🔄 Re-analyze with Steps"}
+                    </button>
+                  </div>
+                )}
+
+                {errorDiagnosis.length > 0 ? (
+                  <ul className="space-y-3">
+                    {errorDiagnosis.map((d, i) => {
+                      const issue = issues[d.issue_index];
+
+                      return (
+                        <li
+                          key={i}
+                          className="p-3 border border-slate-200 rounded-lg space-y-2"
+                        >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                              {errorTypeLabel(d.error_type)}
+                            </span>
+
+                            <span
+                              className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                d.is_acceptable
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-red-100 text-red-700"
+                              }`}
+                            >
+                              {d.is_acceptable ? "Acceptable" : "Needs Attention"}
+                            </span>
+
+                            {issue && (
+                              <span className="text-xs text-slate-400">
+                                Related issue: {issue.message}
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="text-sm text-slate-600">
+                            <span className="font-medium text-slate-700">
+                              Related step:{" "}
+                            </span>
+                            {d.related_step}
+                          </p>
+
+                          <p className="text-sm text-slate-600">
+                            <span className="font-medium text-slate-700">
+                              Suggestion:{" "}
+                            </span>
+                            {d.suggestion}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-400">
+                    No error diagnosis results yet.
+                  </p>
+                )}
               </div>
+
+              <button
+                onClick={() => router.push("/report")}
+                className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
+              >
+                Generate Report →
+              </button>
             </div>
-          )}
-
-          <DataChart chartData={result.chart_data} issues={result.issues} />
-
-          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-slate-700">🤖 AI Analysis</h2>
-              <span className={`text-xs px-2 py-0.5 rounded font-medium ${
-                result.ai_explanation.confidence === "high"
-                  ? "bg-green-100 text-green-700"
-                  : result.ai_explanation.confidence === "medium"
-                  ? "bg-amber-100 text-amber-700"
-                  : "bg-slate-100 text-slate-500"
-              }`}>
-                Confidence: {result.ai_explanation.confidence === "high" ? "High" : result.ai_explanation.confidence === "medium" ? "Medium" : "Low"}
-              </span>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Possible Causes</p>
-              <ul className="space-y-1">
-                {result.ai_explanation.possible_causes.map((cause, i) => (
-                  <li key={i} className="text-sm text-slate-600 flex gap-2">
-                    <span className="text-slate-300 shrink-0">•</span>
-                    {cause}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Suggested Actions</p>
-              <ul className="space-y-1">
-                {result.ai_explanation.suggested_actions.map((action, i) => (
-                  <li key={i} className="text-sm text-slate-600 flex gap-2">
-                    <span className="text-blue-400 shrink-0">→</span>
-                    {action}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="p-3 bg-slate-50 rounded-lg text-sm text-slate-600 border border-slate-100">
-              <span className="font-medium text-slate-700">Impact on Conclusion: </span>
-              {result.ai_explanation.impact_on_conclusion}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-            <h2 className="font-semibold text-slate-700">🔧 Error Diagnosis</h2>
-
-            {!hasProtocol && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
-                <p className="text-sm text-amber-800 font-medium">
-                  Tell me your experiment steps so AI can pinpoint which step caused each problem:
-                </p>
-                <textarea
-                  className="w-full h-24 p-3 border border-amber-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm"
-                  placeholder={"Describe each step, e.g.:\n1. Prepare enzyme solution and substrate\n2. Control temperature in a water bath\n3. Mix and start timing\n4. Read absorbance on a spectrophotometer"}
-                  value={experimentSteps}
-                  onChange={(e) => setExperimentSteps(e.target.value)}
-                />
-                <button
-                  onClick={handleAnalyze}
-                  disabled={!experimentSteps.trim() || isAnalyzing}
-                  className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isAnalyzing ? "⏳ Re-analyzing..." : "🔄 Re-analyze with Steps"}
-                </button>
-              </div>
-            )}
-
-            {result.error_diagnosis && result.error_diagnosis.length > 0 ? (
-              <ul className="space-y-3">
-                {result.error_diagnosis.map((d, i) => {
-                  const issue = result.issues[d.issue_index];
-                  return (
-                    <li key={i} className="p-3 border border-slate-200 rounded-lg space-y-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
-                          {errorTypeLabel(d.error_type)}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                          d.is_acceptable
-                            ? "bg-green-100 text-green-700"
-                            : "bg-red-100 text-red-700"
-                        }`}>
-                          {d.is_acceptable ? "Acceptable" : "Needs Attention"}
-                        </span>
-                        {issue && (
-                          <span className="text-xs text-slate-400">
-                            Related issue: {issue.message}
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="text-sm text-slate-600">
-                        <span className="font-medium text-slate-700">Related step: </span>
-                        {d.related_step}
-                      </p>
-
-                      <p className="text-sm text-slate-600">
-                        <span className="font-medium text-slate-700">Suggestion: </span>
-                        {d.suggestion}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="text-sm text-slate-400">No error diagnosis results yet.</p>
-            )}
-          </div>
-
-          <button
-            onClick={() => router.push("/report")}
-            className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
-          >
-            Generate Report →
-          </button>
-        </div>
-      )}
+          );
+        })()}
     </div>
   );
 }

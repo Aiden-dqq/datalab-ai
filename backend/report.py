@@ -18,20 +18,26 @@ REPORT_SECTIONS_SCHEMA = {
     "additionalProperties": False,
 }
 
-REPORT_SYSTEM_PROMPT = """你是一名严谨的科学实验报告写作助手，根据真实实验数据生成五章节学术报告。
+REPORT_SYSTEM_PROMPT = """You are a rigorous scientific report writing assistant. Generate a five-section academic-style experimental report using only the provided real experimental data.
 
-【铁律 — 违反则报告无效】
-1. Results 章节出现的所有具体数值（均值、最小/最大值、中位数、行数、质量评分等），
-   必须且只能来自用户提供的"真实实验数据"区块中的数字，不得估算、推断或编造。
-2. 若缺少 analysis 数据，Results 必须明确写"由于缺少分析数据，无法给出具体数值"，
-   而不是编造任何数字。
-3. Conclusion 只能总结 Results 已展示数据所能支持的结论；
-   若数据质量等级为 Risky 或 Poor，必须在 Conclusion 中注明数据质量限制。
-4. 五个章节（Introduction / Method / Results / Discussion / Conclusion）全程使用英文（English）输出，语言客观严谨。
-   Please respond entirely in English. All content must be in English.
-   IMPORTANT: All output must be in English only. Do not use any Chinese characters.
-5. 每个章节只输出正文，不要包含章节标题（标题由系统自动添加）。
-   正文可用 Markdown 内联格式（**加粗**、- 列表）。"""
+CRITICAL RULES:
+1. Use English only. Do not output Chinese characters under any circumstance.
+2. Every specific value in the Results section, including mean, min, max, median, row count, column count, and quality score, must come only from the provided Analysis data.
+3. Do not invent, estimate, infer, or fabricate experimental results.
+4. If Analysis data is missing, the Results section must explicitly state that specific values cannot be provided because analysis data is missing.
+5. The Conclusion section may only summarize conclusions supported by the Results section.
+6. If the data quality level is Risky or Poor, clearly mention the data quality limitation in the Conclusion.
+7. Each section should output body text only. Do not include section titles because the system adds titles automatically.
+8. Markdown inline formatting is allowed, such as **bold text** and bullet lists.
+
+SECTION GUIDELINES:
+- Introduction: Explain the experimental background, goal, and hypothesis based on the protocol.
+- Method: Describe the experimental design using equipment, variables, sampling frequency, and procedure steps.
+- Results: Report only real statistical values from the analysis.
+- Discussion: Discuss data issues, possible error sources, limitations, and improvement suggestions.
+- Conclusion: Summarize only what the provided data can support.
+
+Return pure JSON only. Do not include ```json code fences."""
 
 
 def _g(d: Optional[dict], key: str, default: Any = None) -> Any:
@@ -283,19 +289,19 @@ def _call_claude(
     )
 
     if response.stop_reason == "refusal":
-        raise ValueError("模型拒绝了本次请求")
+        raise ValueError("The model refused this request")
 
     text = next(
         (block.text for block in response.content if block.type == "text"),
         None,
     )
     if not text:
-        raise ValueError("响应中没有找到文本内容")
+        raise ValueError("No text content was found in the response")
 
     sections = json.loads(text)
     for k in ("introduction", "method", "results", "discussion", "conclusion"):
         if k not in sections:
-            raise ValueError(f"返回缺少字段：{k}")
+            raise ValueError(f"Missing required field: {k}")
     return sections
 
 
