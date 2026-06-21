@@ -19,7 +19,7 @@
 // ============================================================
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   loadSession,
@@ -270,6 +270,10 @@ export default function ReportPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [copySuccess, setCopySuccess]   = useState(false);
   const [activeTab, setActiveTab]       = useState<"sections" | "raw">("sections");
+  const [isDownloading, setIsDownloading] = useState(false); // 是否正在生成 PDF
+  // 截图目标：指向"章节视图"容器，下载 PDF 时把它转成图片
+  // C++ 类比：指向要截图的那块 DOM 的指针
+  const reportRef = useRef<HTMLDivElement>(null);
 
   // ── 初始化：从 localStorage 读取 session ────────────────
   useEffect(() => {
@@ -420,6 +424,92 @@ export default function ReportPage() {
     }
   }
 
+  // ── 下载 PDF（带斜向半透明水印）─────────────────────────
+  // 流程：把章节视图截图 → 贴进 A4 PDF（长内容自动分页）→ 每页中央叠加
+  //       45° 灰色半透明水印 → 用实验标题命名保存。
+  // jspdf / html2canvas 用动态 import（只在点击时才加载，且它们是纯浏览器库）。
+  async function handleDownloadPDF() {
+    if (!report) return;
+
+    // PDF 取"章节视图"的内容；若当前在原始 Markdown 视图，先切回去并等它渲染出来
+    if (activeTab !== "sections") {
+      setActiveTab("sections");
+      await new Promise((r) => setTimeout(r, 250)); // 等 React 把章节卡片画出来
+    }
+    const node = reportRef.current;
+    if (!node) return;
+
+    setIsDownloading(true);
+    try {
+      // 动态加载两个库（默认导出 / 具名导出）
+      const html2canvas = (await import("html2canvas")).default;
+      const { jsPDF } = await import("jspdf");
+
+      // 1) 把 DOM 截成高分辨率画布（scale=2 更清晰，背景填白）
+      const canvas = await html2canvas(node, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+      });
+
+      // 2) 新建 A4 纵向 PDF（单位 mm）
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageW = pdf.internal.pageSize.getWidth();   // 210
+      const pageH = pdf.internal.pageSize.getHeight();  // 297
+
+      // 截图按页宽等比缩放后的高度
+      const imgW = pageW;
+      const imgH = (canvas.height * imgW) / canvas.width;
+      const imgData = canvas.toDataURL("image/jpeg", 0.95);
+
+      // 3) 把长图按页高切片，逐页贴入（实现自动分页）
+      let heightLeft = imgH;
+      let position = 0;                 // 当前图片相对页面顶部的 y 偏移
+      pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
+      heightLeft -= pageH;
+      while (heightLeft > 0) {
+        position -= pageH;             // 图片整体上移一页
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
+        heightLeft -= pageH;
+      }
+
+      // 4) 给每一页平铺 45° 灰色半透明 "DataLab" 水印（网格排列）
+      const watermark = "DataLab";
+      const PX_TO_MM = 25.4 / 96;            // 96dpi 下 px → mm 换算
+      const gapX = 150 * PX_TO_MM;           // 横向间隔 ≈ 39.7mm（约 150px）
+      const gapY = 100 * PX_TO_MM;           // 纵向间隔 ≈ 26.5mm（约 100px）
+      // GState 是 jsPDF 的高级图形状态构造器（TS 里用断言取出）
+      const GState = (pdf as unknown as { GState: new (o: object) => object }).GState;
+      const totalPages = pdf.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        pdf.saveGraphicsState();
+        pdf.setGState(new GState({ opacity: 0.28 }));  // 透明度 28%
+        pdf.setFontSize(13);                            // 适中字号（≈17px）
+        pdf.setTextColor(150, 150, 150);               // 灰色
+        // 双重循环铺满整页：每个网格点放一个旋转 45° 的 "DataLab"。
+        // 从负偏移起步、到超出页面边界结束，保证四个边角也被覆盖。
+        for (let y = -gapY; y < pageH + gapY; y += gapY) {
+          for (let x = -gapX; x < pageW + gapX; x += gapX) {
+            pdf.text(watermark, x, y, { angle: 45 });
+          }
+        }
+        pdf.restoreGraphicsState();          // 还原，避免影响后续页内容
+      }
+
+      // 5) 用实验标题命名（去掉文件名非法字符）
+      const safeTitle = (report.title || "实验报告")
+        .replace(/[\\/:*?"<>|]/g, "_")
+        .slice(0, 60);
+      pdf.save(`${safeTitle}.pdf`);
+    } catch (e) {
+      alert("生成 PDF 失败：" + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
   // ── 重新生成（清除报告，保留 protocol/analysis）────────
   function handleReset() {
     setReport(null);
@@ -553,7 +643,7 @@ export default function ReportPage() {
           {isGenerating ? (
             <>
               <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              Claude 正在生成五章节报告（约 15-25 秒）...
+              Claude 正在生成五章节报告（约 20-40 秒，请耐心等待）...
             </>
           ) : (
             "🤖 生成实验报告"
@@ -630,9 +720,9 @@ export default function ReportPage() {
             </button>
           </div>
 
-          {/* 章节视图：每节一张卡片（可折叠）*/}
+          {/* 章节视图：每节一张卡片（可折叠）。reportRef 指向这块，用于截图生成 PDF */}
           {activeTab === "sections" && (
-            <div className="space-y-3">
+            <div ref={reportRef} className="space-y-3 bg-white p-2 rounded-xl">
               {SECTION_META.map((meta) => (
                 <SectionCard
                   key={meta.key}
@@ -640,6 +730,11 @@ export default function ReportPage() {
                   content={report.sections[meta.key]}
                 />
               ))}
+
+              {/* 报告页脚小字（会一起出现在 PDF 里）*/}
+              <p className="text-center text-xs text-slate-400 pt-3 mt-2 border-t border-slate-100">
+                Generated by DataLab AI · For Reference Only
+              </p>
             </div>
           )}
 
@@ -663,6 +758,20 @@ export default function ReportPage() {
                 : "✗ 无分析数据（Results 数值不可用）"}
             </span>
           </div>
+
+          {/* ── 底部：下载 PDF 报告（带斜向半透明水印）── */}
+          <button
+            onClick={handleDownloadPDF}
+            disabled={isDownloading}
+            className="w-full py-3 bg-rose-600 text-white rounded-lg font-medium
+                       hover:bg-rose-700 disabled:bg-slate-300 disabled:cursor-not-allowed
+                       transition-colors flex items-center justify-center gap-2"
+          >
+            {isDownloading ? "⏳ 正在生成 PDF..." : "📄 下载 PDF 报告"}
+          </button>
+          <p className="text-center text-xs text-slate-400 -mt-1">
+            PDF 每页平铺「DataLab」斜向水印，仅供参考
+          </p>
 
         </div>
       )}
