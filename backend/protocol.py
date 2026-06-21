@@ -159,7 +159,7 @@ def generate_protocol(goal: str, constraints: Optional[str] = None) -> dict:
         client = anthropic.Anthropic(api_key=api_key)
 
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",            
             max_tokens=4000,
             system=SYSTEM_PROMPT,
             messages=[
