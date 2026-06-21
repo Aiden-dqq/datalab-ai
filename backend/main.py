@@ -16,7 +16,7 @@ import json
 from dotenv import load_dotenv                 # 从 .env 文件加载环境变量
 load_dotenv()                                  # 自动找项目根目录的 .env，把里面的 KEY=VALUE 写入环境变量
 
-from fastapi import FastAPI                    # 核心框架类
+from fastapi import FastAPI, HTTPException     # 核心框架类 + HTTP 异常（用于返回 4xx 错误）
 from fastapi.middleware.cors import CORSMiddleware  # 跨域资源共享中间件
 from pydantic import BaseModel                 # 数据验证库（类似 C++ 的 struct + 验证）
 from datetime import datetime, timezone        # 日期时间处理
@@ -26,6 +26,9 @@ import uvicorn                                 # ASGI 服务器（类似 C++ 里
 # 导入功能 A（Protocol Builder）的生成函数
 # from protocol import generate_protocol ≈ C++ 的 #include "protocol.h" 后调用其中的函数
 from protocol import generate_protocol
+
+# 导入功能 B（Data Analyzer）的分析函数
+from analyze import analyze_dataset
 
 # ─── 创建 FastAPI 应用实例 ────────────────────────────────
 # C++ 类比：FastAPI app;  相当于 new FastAPI()
@@ -527,6 +530,56 @@ async def create_protocol(req: ProtocolRequest) -> dict:
     """
     # FastAPI 已经把请求 JSON 解析成 req 对象，直接取字段调用即可
     return generate_protocol(goal=req.goal, constraints=req.constraints)
+
+
+# ─── 功能 B：Data Analyzer（数据质量分析）──────────────────
+# 请求体模型：前端 analyze 页面 POST 过来的 JSON
+# C++ 类比：
+#   struct AnalyzeRequest {
+#     string csv_text;                      // CSV 文本内容（必填）
+#     string dataset_name = "experiment.csv"; // 数据集名（可选，有默认值）
+#     optional<string> protocol_context;    // 上一步方案的上下文（可选）
+#   };
+class AnalyzeRequest(BaseModel):
+    csv_text: str                                      # CSV 文本（必填）
+    dataset_name: str = "experiment.csv"               # 数据集名（可选）
+    protocol_context: Optional[str] = None             # 实验方案上下文（可选）
+
+
+@app.post(
+    "/api/analyze",
+    summary="数据质量分析",
+    description=(
+        "接收 CSV 文本，用 pandas 做确定性检测（缺失值/重复行/IQR离群点），"
+        "计算各列统计与 0~100 质量分，再调用 Claude 解读异常。"
+        "Claude 失败时只返回程序分析结果，保证不崩。"
+    ),
+)
+async def create_analysis(req: AnalyzeRequest) -> dict:
+    """
+    数据分析接口
+
+    前端发来 { csv_text, dataset_name, protocol_context }。
+    analyze_dataset() 内部返回 { ok, data, error }，这里做一层适配：
+
+    ★ 注意契约：队友 B 的前端（analyze/page.tsx）直接把 200 响应体当成
+      AnalysisOutput 使用，并在非 200 时读 errBody.detail。所以这里：
+        - 成功 → 直接返回 data（即纯 AnalysisOutput，HTTP 200）
+        - CSV 解析失败 → 抛 HTTPException(400, detail=...)，正好对上前端的错误处理
+
+    Claude API 失败不会走到这里的错误分支——它在 analyze_dataset 内部已被
+    兜底（ai_explanation 用本地文字），ok 仍为 True。
+    """
+    result = analyze_dataset(
+        csv_text=req.csv_text,
+        dataset_name=req.dataset_name,
+        protocol_context=req.protocol_context,
+    )
+    # 唯一的硬错误：CSV 解析失败 → 返回 400，前端 errBody.detail 显示提示
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    # 成功：直接返回 AnalysisOutput（前端 setResult(data) 直接用）
+    return result["data"]
 
 
 # ─── 根路径路由 ────────────────────────────────────────────
