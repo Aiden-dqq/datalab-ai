@@ -144,6 +144,22 @@ export type AnalysisOutput = {
     // AI 自身对这份解读的置信度
     confidence: "low" | "medium" | "high";
   };
+
+  // 逐个问题的"错误诊断"（与 issues 一一对应，由 issue_index 关联）
+  // 判断每个问题是"自然波动"还是"操作/设备/记录失误"，并定位到具体实验步骤
+  // 可选（"?"）：后端旧版本或某些情况下可能没有此字段
+  error_diagnosis?: Array<{
+    issue_index: number;     // 对应 issues 数组的下标（从 0 开始）
+    is_acceptable: boolean;  // 是否属于可接受的自然波动
+    // 错误归类：自然波动 / 操作失误 / 设备误差 / 记录错误
+    error_type:
+      | "natural_variation"
+      | "operation_error"
+      | "equipment_error"
+      | "recording_error";
+    related_step: string;    // 关联的实验步骤（情况一能定位，情况二未填步骤时为提示语）
+    suggestion: string;      // 针对该问题的具体改进建议
+  }>;
 };
 
 

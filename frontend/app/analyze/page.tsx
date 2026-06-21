@@ -38,6 +38,24 @@ function severityColor(severity: string) {
   }
 }
 
+// ─── 错误诊断：把 error_type 枚举转成中文标签 ──────────────────
+function errorTypeLabel(t: string) {
+  const labels: Record<string, string> = {
+    natural_variation: "自然波动",
+    operation_error: "操作失误",
+    equipment_error: "设备误差",
+    recording_error: "记录错误",
+  };
+  return labels[t] ?? t;
+}
+
+// ─── 把 data URL（"data:mime;base64,XXXX"）里的 base64 主体抠出来 ──
+// FileReader.readAsDataURL 读二进制会得到 data URL，后端只要逗号后面那段。
+function stripDataUrl(dataUrl: string): string {
+  const comma = dataUrl.indexOf(",");
+  return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+}
+
 // ─── 折线图组件 ──────────────────────────────────────────────
 // C++ 类比：void renderChart(vector<map<string,variant>> chartData, vector<Issue> issues)
 function DataChart({
@@ -164,6 +182,18 @@ export default function AnalyzePage() {
   // C++ 类比：pointer to hidden file input element
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ── 多格式输入支持（CSV文本 / Excel / 图片）──────────────
+  const [inputKind, setInputKind] = useState<"text" | "xlsx" | "image">("text");
+  const [fileBase64, setFileBase64] = useState<string | null>(null); // xlsx/image 的二进制(base64)
+  const [mediaType, setMediaType] = useState<string | null>(null);   // 图片 MIME，如 image/png
+
+  // ── 错误诊断（情况二）：用户直接上传数据、没有 protocol 时，
+  //    让用户后补实验步骤，再点"重新分析"让 AI 结合步骤诊断 ──
+  const [experimentSteps, setExperimentSteps] = useState("");
+  // 给后端的"方案上下文"（情况一：含实验步骤+设备清单）。null 表示没来自功能A
+  const [protocolCtx, setProtocolCtx] = useState<string | null>(null);
+  const hasProtocol = protocolCtx !== null;
+
   const router = useRouter();
 
   useEffect(() => {
@@ -171,6 +201,23 @@ export default function AnalyzePage() {
     const proto = session?.protocol as Record<string, unknown> | undefined;
     const title = (proto?.title ?? proto?.description) as string | undefined;
     if (title) setProtocolTitle(title);
+
+    // 情况一：来自功能 A，构建含"实验步骤 + 设备清单"的上下文，
+    // 喂给后端做错误诊断时能定位"是哪一步出了问题"。
+    if (proto) {
+      const steps = Array.isArray(proto.procedure_steps)
+        ? (proto.procedure_steps as string[]) : [];
+      const equip = Array.isArray(proto.equipment)
+        ? (proto.equipment as string[]) : [];
+      const ctx = [
+        `实验方案：${proto.title ?? proto.description ?? ""}`,
+        `目标：${proto.objective ?? ""}`,
+        steps.length ? `实验步骤：\n${steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}` : "",
+        equip.length ? `设备清单：${equip.join("、")}` : "",
+      ].filter(Boolean).join("\n");
+      setProtocolCtx(ctx);
+    }
+
     if (session?.analysis) {
       setResult(session.analysis);
       const saved = session as Record<string, unknown>;
@@ -178,13 +225,37 @@ export default function AnalyzePage() {
     }
   }, []);
 
-  // ── 从 File 对象读取文本内容 ───────────────────────────
+  // ── 从 File 对象读取内容（按类型分流）────────────────────
   // 抽出来给上传和拖拽共用，C++ 类比：void readFile(File* f)
+  // 三种分支：
+  //   .xlsx/.xls → 读成 base64 二进制，input_kind="xlsx"
+  //   image/*    → 读成 base64 二进制，input_kind="image"（后端用 vision 识别）
+  //   其他(文本) → 读成文本，input_kind="text"（CSV/tab/分号都支持）
   function readFile(file: File) {
     setFileName(file.name);
+    const name = file.name.toLowerCase();
     const reader = new FileReader();
-    reader.onload = (e) => setCsvText(e.target?.result as string);
-    reader.readAsText(file, "UTF-8");
+
+    if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+      setInputKind("xlsx");
+      setMediaType(null);
+      setCsvText("");                       // 二进制模式不用文本框内容
+      reader.onload = (e) => setFileBase64(stripDataUrl(e.target?.result as string));
+      reader.readAsDataURL(file);           // 读成 data URL → 取 base64
+    } else if (file.type.startsWith("image/")) {
+      setInputKind("image");
+      setMediaType(file.type);              // 如 image/png、image/jpeg
+      setCsvText("");
+      reader.onload = (e) => setFileBase64(stripDataUrl(e.target?.result as string));
+      reader.readAsDataURL(file);
+    } else {
+      // 文本表格（csv / tsv / txt 等）
+      setInputKind("text");
+      setFileBase64(null);
+      setMediaType(null);
+      reader.onload = (e) => setCsvText(e.target?.result as string);
+      reader.readAsText(file, "UTF-8");
+    }
   }
 
   // ── 点击选择文件 ───────────────────────────────────────
@@ -217,27 +288,32 @@ export default function AnalyzePage() {
     if (file) readFile(file);
   }
 
+  // 是否已有可分析的输入：文本模式看文本框，二进制模式看 base64
+  const hasInput = inputKind === "text" ? !!csvText.trim() : !!fileBase64;
+
   // ── 主分析函数 ─────────────────────────────────────────
+  // 同时被"开始分析"和"重新分析（带实验步骤）"复用：
+  // 它总是带上当前的 experimentSteps，所以情况二补填步骤后再调一次即可重新诊断。
   async function handleAnalyze() {
-    if (!csvText.trim()) return;
+    if (!hasInput) return;
     setIsAnalyzing(true);
     setError(null);
-    setResult(null);
 
     try {
-      const session = loadSession();
-      const proto = session?.protocol as Record<string, unknown> | undefined;
-      const protocolContext = proto
-        ? `实验方案：${proto.title ?? proto.description ?? ""}\n目标：${proto.objective ?? ""}`
-        : undefined;
-
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           csv_text: csvText,
           dataset_name: fileName ?? "experiment.csv",
-          protocol_context: protocolContext,
+          // 情况一：方案上下文（含步骤/设备）；没来自功能A时为 undefined
+          protocol_context: protocolCtx ?? undefined,
+          // 多格式：输入类型 + 二进制内容
+          input_kind: inputKind,
+          file_base64: fileBase64 ?? undefined,
+          media_type: mediaType ?? undefined,
+          // 情况二：用户后补的实验步骤（为空则 undefined）
+          experiment_steps: experimentSteps.trim() ? experimentSteps : undefined,
         }),
       });
 
@@ -300,17 +376,17 @@ export default function AnalyzePage() {
           <p className="text-sm font-medium text-slate-600">
             {fileName
               ? `已选择：${fileName}`
-              : "拖拽 CSV 文件到这里"}
+              : "拖拽 CSV / Excel / 图片 到这里"}
           </p>
           <p className="text-xs text-slate-400">
-            {fileName ? "点击可重新选择" : "或点击选择文件"}
+            {fileName ? "点击可重新选择" : "支持 .csv / .xlsx / 表格图片，或点击选择文件"}
           </p>
 
           {/* 隐藏的原生文件输入，由 ref 控制，不直接显示 */}
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.tsv,.txt,text/csv,.xlsx,.xls,image/*"
             className="hidden"
             onChange={handleFileInputChange}
             // 阻止点击 input 冒泡到父 div，避免触发两次文件选择弹窗
@@ -318,23 +394,38 @@ export default function AnalyzePage() {
           />
         </div>
 
+        {/* 二进制输入（Excel/图片）提示：此时文本框用不上，给个状态条 */}
+        {inputKind !== "text" && fileBase64 && (
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+            {inputKind === "xlsx" ? "📊 已加载 Excel 文件" : "🖼️ 已加载图片（将用 AI 识别表格）"}
+            ：{fileName}
+            <span className="text-blue-400 ml-1">— 直接点「开始分析」，或在下方粘贴文本改用文本模式</span>
+          </div>
+        )}
+
         {/* CSV 文本框 */}
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
-            CSV 数据 <span className="text-slate-400 font-normal">（也可直接粘贴）</span>
+            数据文本 <span className="text-slate-400 font-normal">（CSV / 制表符 / 分号分隔，也可直接粘贴）</span>
           </label>
           <textarea
             className="w-full h-40 p-3 border border-slate-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono"
             placeholder={"粘贴 CSV 数据，例如：\ntime,temperature,absorbance\n0,25,0.12\n30,37,0.45\n60,60,0.08"}
             value={csvText}
-            onChange={(e) => setCsvText(e.target.value)}
+            onChange={(e) => {
+              // 一旦手动输入文本，就切回文本模式并清掉已加载的二进制文件
+              setCsvText(e.target.value);
+              setInputKind("text");
+              setFileBase64(null);
+              setMediaType(null);
+            }}
           />
         </div>
 
         {/* 分析按钮 */}
         <button
           onClick={handleAnalyze}
-          disabled={!csvText.trim() || isAnalyzing}
+          disabled={!hasInput || isAnalyzing}
           className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
         >
           {isAnalyzing ? "⏳ 分析中..." : "开始分析"}
@@ -474,6 +565,80 @@ export default function AnalyzePage() {
               <span className="font-medium text-slate-700">对结论的影响：</span>
               {result.ai_explanation.impact_on_conclusion}
             </div>
+          </div>
+
+          {/* ── 错误诊断卡片 ───────────────────────────────── */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+            <h2 className="font-semibold text-slate-700">🔧 错误诊断</h2>
+
+            {/* 情况二：没有 protocol 时，让用户补填实验步骤再重新诊断 */}
+            {!hasProtocol && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+                <p className="text-sm text-amber-800 font-medium">
+                  告诉我你的实验步骤，AI 才能判断是哪个环节出了问题：
+                </p>
+                <textarea
+                  className="w-full h-24 p-3 border border-amber-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-amber-400 text-sm"
+                  placeholder={"逐条描述实验步骤，例如：\n1. 配制酶液与底物\n2. 水浴控温到目标温度\n3. 混合并计时\n4. 分光光度计比色读数"}
+                  value={experimentSteps}
+                  onChange={(e) => setExperimentSteps(e.target.value)}
+                />
+                <button
+                  onClick={handleAnalyze}
+                  disabled={!experimentSteps.trim() || isAnalyzing}
+                  className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isAnalyzing ? "⏳ 重新分析中..." : "🔄 结合步骤重新分析"}
+                </button>
+              </div>
+            )}
+
+            {/* 逐个问题的诊断结果 */}
+            {result.error_diagnosis && result.error_diagnosis.length > 0 ? (
+              <ul className="space-y-3">
+                {result.error_diagnosis.map((d, i) => {
+                  // 用 issue_index 找回对应的那条问题，展示它的描述
+                  const issue = result.issues[d.issue_index];
+                  return (
+                    <li key={i} className="p-3 border border-slate-200 rounded-lg space-y-2">
+                      {/* 顶部：错误类型 + 是否可接受 徽标 */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                          {errorTypeLabel(d.error_type)}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          d.is_acceptable
+                            ? "bg-green-100 text-green-700"
+                            : "bg-red-100 text-red-700"
+                        }`}>
+                          {d.is_acceptable ? "可接受" : "需处理"}
+                        </span>
+                        {/* 关联的问题描述 */}
+                        {issue && (
+                          <span className="text-xs text-slate-400">
+                            关联问题：{issue.message}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 关联步骤 */}
+                      <p className="text-sm text-slate-600">
+                        <span className="font-medium text-slate-700">关联步骤：</span>
+                        {d.related_step}
+                      </p>
+
+                      {/* 改进建议 */}
+                      <p className="text-sm text-slate-600">
+                        <span className="font-medium text-slate-700">改进建议：</span>
+                        {d.suggestion}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-400">暂无错误诊断结果。</p>
+            )}
           </div>
 
           {/* 跳转到报告的按钮 */}

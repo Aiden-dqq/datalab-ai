@@ -24,9 +24,10 @@
 # ============================================================
 
 import os                       # 读取环境变量
-import io                       # 把字符串当文件读（给 pandas）
+import io                       # 把字符串/字节当文件读（给 pandas）
 import json                     # JSON 字符串 <-> Python 对象
 import math                     # isnan / isinf 判断
+import base64                   # 解码前端传来的 base64 二进制（Excel / 图片）
 from typing import Optional, Any
 
 import pandas as pd             # 数据分析主库（这一步的核心）
@@ -77,22 +78,126 @@ def _quality_level(score: float) -> str:
 # 1. 解析 CSV 文本 -> DataFrame
 # ─────────────────────────────────────────────────────────────
 
-def _parse_csv(csv_text: str) -> pd.DataFrame:
+def _finalize_df(df: pd.DataFrame) -> pd.DataFrame:
     """
-    把 CSV 文本解析成 DataFrame。
-
-    解析失败（空内容 / 格式错乱）会抛异常，由外层 analyze_dataset 捕获，
-    转成 {ok: False, error: ...} 返回。
-
-    reset_index(drop=True) 让行号从 0 连续重排，保证后面所有 row_index
-    与 chart_data 的下标一一对应（前端靠这个下标在折线图上标红离群点）。
+    所有来源（文本 / Excel / 图片）解析出 DataFrame 后统一收尾：
+      - reset_index(drop=True) 让行号从 0 连续重排，保证后面所有 row_index
+        与 chart_data 的下标一一对应（前端靠这个下标在折线图上标红离群点）。
+      - 基本校验：至少要有数据行和列。
+    解析失败会抛异常，由外层 analyze_dataset 捕获成"硬错误"返回。
     """
-    df = pd.read_csv(io.StringIO(csv_text))
     df = df.reset_index(drop=True)
-    # 去掉完全空白的列名/空列这种边界情况不强求；这里只做最基本的校验
     if df.shape[0] == 0 or df.shape[1] == 0:
-        raise ValueError("CSV 没有有效数据行或列")
+        raise ValueError("没有有效的数据行或列")
     return df
+
+
+def _parse_table(text: str) -> pd.DataFrame:
+    """
+    解析"带分隔符的文本表格"，自动识别 逗号(CSV) / 制表符(TSV) / 分号 等分隔符。
+
+    关键点：sep=None + engine="python" 会让 pandas 用内置嗅探器自动判断分隔符，
+    所以同一个函数能同时吃下 CSV、tab 分隔、分号分隔三种文本，无需用户指定。
+    """
+    df = pd.read_csv(io.StringIO(text), sep=None, engine="python")
+    return _finalize_df(df)
+
+
+def _read_excel(file_bytes: bytes) -> pd.DataFrame:
+    """
+    解析 .xlsx 二进制内容（默认只读第一个工作表）。
+    pd.read_excel 读 xlsx 需要 openpyxl 引擎（已在 requirements 里）。
+    io.BytesIO 把字节当成文件给 pandas（类比 io.StringIO 之于字符串）。
+    """
+    df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
+    return _finalize_df(df)
+
+
+def _image_to_table_text(file_base64: str, media_type: str) -> str:
+    """
+    用 Claude vision（视觉）把"数据表格图片"识别成 CSV 文本。
+
+    流程：把图片(base64) + 指令一起发给 Claude，要求它只输出 CSV，
+    再交给 _parse_table 解析成 DataFrame。
+    没有 API Key 或调用失败时抛异常，由上层转成"解析失败"硬错误。
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("识别图片需要 ANTHROPIC_API_KEY，但当前未配置")
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+
+    response = client.messages.create(
+        model="claude-opus-4-8",          # Opus 支持视觉(vision)
+        max_tokens=4000,
+        messages=[{
+            "role": "user",
+            # 视觉消息的 content 是一个列表：先放图片块，再放文字指令
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,   # 如 image/png、image/jpeg
+                        "data": file_base64,
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": (
+                        "这是一张实验数据表格的照片或截图。请把表格内容转成 CSV："
+                        "第一行是列名，之后每行一条记录，单元格之间用英文逗号分隔。"
+                        "只输出 CSV 本身，不要任何解释文字，也不要用 ``` 代码块包裹。"
+                    ),
+                },
+            ],
+        }],
+    )
+
+    text = next(
+        (block.text for block in response.content if block.type == "text"),
+        "",
+    ).strip()
+    # 去掉模型可能加的 ```csv ... ``` 包裹
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text
+        text = text.rsplit("```", 1)[0].strip()
+    if not text:
+        raise ValueError("未能从图片中识别出表格内容")
+    return text
+
+
+def _load_dataframe(
+    input_kind: str,
+    csv_text: Optional[str],
+    file_base64: Optional[str],
+    media_type: Optional[str],
+) -> pd.DataFrame:
+    """
+    按输入类型把不同来源统一加载成 DataFrame（这是多格式支持的总入口）：
+      - "text"  : 文本表格（CSV / tab / 分号），来自 csv_text
+      - "xlsx"  : Excel 文件，来自 base64 解码后的二进制
+      - "image" : 数据表格图片，先用 Claude vision 转成 CSV 文本再解析
+    任何失败都抛异常，由 analyze_dataset 捕获成硬错误（返回 ok=False）。
+    """
+    kind = (input_kind or "text").lower()
+
+    if kind == "xlsx":
+        if not file_base64:
+            raise ValueError("缺少 Excel 文件内容")
+        return _read_excel(base64.b64decode(file_base64))
+
+    if kind == "image":
+        if not file_base64:
+            raise ValueError("缺少图片内容")
+        table_text = _image_to_table_text(file_base64, media_type or "image/png")
+        return _parse_table(table_text)
+
+    # 默认按文本表格处理
+    if not (csv_text and csv_text.strip()):
+        raise ValueError("没有提供数据文本")
+    return _parse_table(csv_text)
 
 
 def _numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -318,7 +423,7 @@ def _build_chart_data(
 # 6. AI 解读：调用 Claude，失败时本地兜底
 # ─────────────────────────────────────────────────────────────
 
-# 给 Claude 的结构化输出"模具"，对应前端 ai_explanation 的形状
+# ai_explanation 的形状（整体解读）
 AI_EXPLANATION_SCHEMA = {
     "type": "object",
     "properties": {
@@ -336,17 +441,83 @@ AI_EXPLANATION_SCHEMA = {
     "additionalProperties": False,
 }
 
-AI_SYSTEM_PROMPT = """你是一位严谨的实验数据分析师。用户已经用程序对一份实验数据做了
-确定性的质量检测（缺失值、重复行、离群点、各列统计）。你的任务是：基于这些"已经算好的
-事实"，对数据质量问题给出专业、克制的解读。
+# error_diagnosis 的形状（逐个问题做"错误诊断"）。
+# 每个元素对应一个检测到的问题（issues 数组里的某一条），由 issue_index 关联。
+ERROR_DIAGNOSIS_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            # 对应 issues 数组的下标（从 0 开始）
+            "issue_index": {"type": "integer"},
+            # 是否属于"可接受的自然波动"（True=可接受，无需大动作）
+            "is_acceptable": {"type": "boolean"},
+            # 错误归类：自然波动 / 操作失误 / 设备误差 / 记录错误
+            "error_type": {
+                "type": "string",
+                "enum": [
+                    "natural_variation",
+                    "operation_error",
+                    "equipment_error",
+                    "recording_error",
+                ],
+            },
+            # 关联的实验步骤（有步骤信息时填"是哪一步导致"，没有则说明无法定位）
+            "related_step": {"type": "string"},
+            # 针对该问题的具体改进建议
+            "suggestion": {"type": "string"},
+        },
+        "required": [
+            "issue_index",
+            "is_acceptable",
+            "error_type",
+            "related_step",
+            "suggestion",
+        ],
+        "additionalProperties": False,
+    },
+}
 
-铁律：
+# 一次调用同时产出"整体解读 + 逐问题诊断"，用一个组合 schema 包住两者
+AI_COMBINED_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ai_explanation": AI_EXPLANATION_SCHEMA,
+        "error_diagnosis": ERROR_DIAGNOSIS_SCHEMA,
+    },
+    "required": ["ai_explanation", "error_diagnosis"],
+    "additionalProperties": False,
+}
+
+AI_SYSTEM_PROMPT = """你是一位严谨的实验数据分析师。用户已经用程序对一份实验数据做了
+确定性的质量检测（缺失值、重复行、离群点、各列统计）。你的任务有两部分：
+
+【任务一：整体解读 ai_explanation】
 1. 只解读已提供的统计结果与问题，不要编造任何新的数值。
 2. possible_causes：从实验/测量角度推测异常的可能成因（具体、可操作）。
 3. suggested_actions：给出针对性的数据清洗或后续实验改进建议。
 4. impact_on_conclusion：说明这些数据问题会如何影响最终实验结论的可信度。
 5. confidence：你对本次解读的置信度（数据越完整、问题越清晰，置信度越高）。
-6. 全部使用中文，语言客观。"""
+
+【任务二：逐个错误诊断 error_diagnosis】
+对每一个检测到的问题（按它在列表中的序号 issue_index）逐条判断：
+- is_acceptable：这个问题是"可接受的自然波动"(true) 还是"需要处理的失误"(false)。
+  · 轻微、孤立、符合物理/化学预期的波动 → 通常可接受。
+  · 明显偏离、缺失、重复 → 通常不可接受。
+- error_type：把不可接受的错误进一步归类（可接受的一般归为 natural_variation）：
+  · natural_variation 自然波动（测量本身的随机性，可接受）
+  · operation_error  操作失误（如加样错误、计时不准、未控温）
+  · equipment_error  设备误差（如仪器未校准、精度不足、污染）
+  · recording_error  记录错误（如漏记、重复导出、写错单位）
+- related_step：
+  · 如果用户提供了"实验步骤/设备清单"，请指出最可能导致该问题的【具体步骤】，
+    并简述为什么是这一步。
+  · 如果没有提供步骤信息，请直接写"未提供实验步骤，无法定位具体环节"。
+- suggestion：针对该问题、该环节的具体改进建议（要可执行）。
+
+【通用铁律】
+- error_diagnosis 必须为每一个问题都给出一条，issue_index 与问题列表序号严格对应。
+- 全程使用中文，语言客观，不夸大。"""
 
 
 def _fallback_ai_explanation(
@@ -391,7 +562,76 @@ def _fallback_ai_explanation(
     }
 
 
-def _ai_explain(
+def _fallback_error_diagnosis(issues: list[dict], has_steps: bool) -> list[dict]:
+    """
+    没有 API Key 或 Claude 失败时的本地兜底"错误诊断"（纯程序规则，逐问题给一条）。
+    保证 error_diagnosis 字段永远存在、且与 issues 一一对应。
+    """
+    related_default = (
+        "（已提供步骤，但本地兜底无法定位具体环节，建议联网由 AI 诊断）"
+        if has_steps else "未提供实验步骤，无法定位具体环节"
+    )
+
+    out: list[dict] = []
+    for i, it in enumerate(issues):
+        t = it.get("type")
+        sev = it.get("severity")
+        if t == "missing":
+            etype, acc = "recording_error", False
+            sug = "核对原始记录补填该值；若无法恢复则在分析时剔除该行"
+        elif t == "duplicate":
+            etype, acc = "recording_error", False
+            sug = "检查数据导出/录入流程，去除完全重复的行"
+        elif t == "outlier":
+            if sev == "high":
+                etype, acc = "operation_error", False
+                sug = "核对该点是否为操作或读数失误；确属异常则剔除后再分析"
+            else:
+                etype, acc = "natural_variation", True
+                sug = "波动幅度有限，可能属正常范围，可暂时保留并继续观察"
+        else:
+            etype, acc = "natural_variation", True
+            sug = "暂无需特别处理"
+        out.append({
+            "issue_index": i,
+            "is_acceptable": acc,
+            "error_type": etype,
+            "related_step": related_default,
+            "suggestion": sug,
+        })
+    return out
+
+
+def _normalize_diagnosis(raw: Any, issues: list[dict], has_steps: bool) -> list[dict]:
+    """
+    把模型返回的 error_diagnosis 校正成"每个问题恰好一条、按 issue_index 排好"。
+
+    为什么要这步：模型偶尔会漏诊断某条、或给出越界的 issue_index。这里以
+    程序检测到的 issues 为准，缺的用本地兜底补齐，保证前端拿到的数组长度和
+    顺序与 issues 完全对齐。
+    """
+    fallback = _fallback_error_diagnosis(issues, has_steps)
+    # 先用兜底铺满，再用模型结果按 index 覆盖（覆盖时保留模型的判断）
+    by_index = {d["issue_index"]: d for d in fallback}
+    if isinstance(raw, list):
+        for d in raw:
+            try:
+                idx = int(d.get("issue_index"))
+            except (TypeError, ValueError):
+                continue
+            if 0 <= idx < len(issues):
+                by_index[idx] = {
+                    "issue_index": idx,
+                    "is_acceptable": bool(d.get("is_acceptable", False)),
+                    "error_type": d.get("error_type", "natural_variation"),
+                    "related_step": str(d.get("related_step", "")),
+                    "suggestion": str(d.get("suggestion", "")),
+                }
+    # 按 issue_index 升序输出
+    return [by_index[i] for i in range(len(issues))]
+
+
+def _ai_diagnose(
     dataset_name: str,
     n_rows: int,
     n_cols: int,
@@ -399,18 +639,30 @@ def _ai_explain(
     quality_level: str,
     statistics: dict,
     issues: list[dict],
-    protocol_context: Optional[str],
+    steps_context: Optional[str],
 ) -> dict:
     """
-    调用 Claude 生成 ai_explanation。任何失败都回退到 _fallback_ai_explanation。
+    调用 Claude 一次性产出："整体解读 ai_explanation" + "逐问题诊断 error_diagnosis"。
+    返回 {"ai_explanation": {...}, "error_diagnosis": [...]}。
 
-    ★ 这里就是你要求的"API 失败时只返回程序分析结果、不崩"的关键：
-      本函数内部 try/except 包住整段网络调用，出错就返回兜底解读，
-      上层 analyze_dataset 拿到的永远是一份结构正确的 ai_explanation。
+    steps_context：实验步骤/设备上下文。
+      - 情况一（来自功能 A 的 protocol）：包含实验步骤与设备清单
+      - 情况二（用户直接上传后手填）：用户输入的实验步骤文字
+      两者都没有时为 None —— 此时 related_step 会标注"无法定位"。
+
+    ★ 任何失败都回退到本地兜底（解读 + 诊断都走 fallback），绝不让接口崩。
     """
+    has_steps = bool(steps_context and steps_context.strip())
+
+    def _fallback_both() -> dict:
+        return {
+            "ai_explanation": _fallback_ai_explanation(issues, quality_level),
+            "error_diagnosis": _fallback_error_diagnosis(issues, has_steps),
+        }
+
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        return _fallback_ai_explanation(issues, quality_level)
+        return _fallback_both()
 
     try:
         import anthropic
@@ -418,7 +670,6 @@ def _ai_explain(
         client = anthropic.Anthropic(api_key=api_key)
 
         # ── 把"已算好的事实"拼成给模型读的上下文 ──────────────
-        # 统计摘要：每行一列
         stat_lines = []
         for col, s in statistics.items():
             stat_lines.append(
@@ -427,19 +678,26 @@ def _ai_explain(
             )
         stat_block = "\n".join(stat_lines) if stat_lines else "  （无数值列统计）"
 
-        # 问题摘要：按类型计数 + 最多列 8 条示例（避免 prompt 过长）
-        type_count: dict[str, int] = {}
-        for it in issues:
-            type_count[it["type"]] = type_count.get(it["type"], 0) + 1
-        count_line = ", ".join(f"{k}×{v}" for k, v in type_count.items()) or "无"
-        sample_lines = "\n".join(f"  - {it['message']}" for it in issues[:8]) or "  （无）"
+        # 逐条带序号列出问题（最多 40 条进 prompt，其余由 normalize 用兜底补齐）
+        issue_lines = "\n".join(
+            f"  [{i}] ({it.get('type')}, {it.get('severity')}) {it.get('message')}"
+            for i, it in enumerate(issues[:40])
+        ) or "  （无问题）"
 
-        ctx = ""
-        if protocol_context and protocol_context.strip():
-            ctx = f"\n实验背景（来自上一步的方案）：\n{protocol_context}\n"
+        # 步骤/设备上下文
+        if has_steps:
+            steps_block = (
+                f"\n用户提供的实验步骤 / 设备信息（请据此定位是哪一步出了问题）：\n"
+                f"{steps_context}\n"
+            )
+        else:
+            steps_block = (
+                "\n（用户未提供实验步骤信息，related_step 请统一写"
+                "“未提供实验步骤，无法定位具体环节”）\n"
+            )
 
-        user_msg = f"""请解读以下实验数据的质量检测结果：
-{ctx}
+        user_msg = f"""请对以下实验数据的质量检测结果做"整体解读"和"逐问题错误诊断"：
+{steps_block}
 数据集：{dataset_name}
 规模：{n_rows} 行 × {n_cols} 列
 数据质量评分：{quality_score}/100（等级：{quality_level}）
@@ -447,20 +705,20 @@ def _ai_explain(
 各数值列统计：
 {stat_block}
 
-检测到的问题（共 {len(issues)} 条，按类型：{count_line}）：
-{sample_lines}
+检测到的问题（issue_index 从 0 开始，共 {len(issues)} 条）：
+{issue_lines}
 
-请基于以上事实给出你的专业解读。"""
+请输出 ai_explanation（整体解读）和 error_diagnosis（对上面每个 issue_index 各一条）。"""
 
         response = client.messages.create(
             model="claude-opus-4-8",       # 默认使用最新、最强的 Opus 模型
-            max_tokens=4000,
+            max_tokens=6000,
             system=AI_SYSTEM_PROMPT,
             thinking={"type": "adaptive"}, # 自适应思考
-            output_config={                # 结构化输出，强制返回符合 schema 的 JSON
+            output_config={                # 结构化输出，强制符合组合 schema
                 "format": {
                     "type": "json_schema",
-                    "schema": AI_EXPLANATION_SCHEMA,
+                    "schema": AI_COMBINED_SCHEMA,
                 }
             },
             messages=[{"role": "user", "content": user_msg}],
@@ -468,20 +726,27 @@ def _ai_explain(
 
         # 模型拒答 → 兜底
         if response.stop_reason == "refusal":
-            return _fallback_ai_explanation(issues, quality_level)
+            return _fallback_both()
 
-        # 取出文本块（开 thinking 后 content 里会先有思考块）
         text = next(
             (block.text for block in response.content if block.type == "text"),
             None,
         )
         if not text:
-            return _fallback_ai_explanation(issues, quality_level)
+            return _fallback_both()
 
-        return json.loads(text)
+        parsed = json.loads(text)
+        return {
+            "ai_explanation": parsed.get("ai_explanation")
+                or _fallback_ai_explanation(issues, quality_level),
+            # 用 normalize 保证诊断与 issues 一一对应
+            "error_diagnosis": _normalize_diagnosis(
+                parsed.get("error_diagnosis"), issues, has_steps
+            ),
+        }
 
     except Exception:  # noqa: BLE001  任何异常都安静降级，绝不让接口崩
-        return _fallback_ai_explanation(issues, quality_level)
+        return _fallback_both()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -489,34 +754,43 @@ def _ai_explain(
 # ─────────────────────────────────────────────────────────────
 
 def analyze_dataset(
-    csv_text: str,
+    csv_text: str = "",
     dataset_name: str = "data.csv",
     protocol_context: Optional[str] = None,
+    input_kind: str = "text",
+    file_base64: Optional[str] = None,
+    media_type: Optional[str] = None,
+    experiment_steps: Optional[str] = None,
 ) -> dict:
     """
     数据分析主入口。
 
     参数：
-      csv_text         : CSV 文本内容（必填）
+      csv_text         : 文本表格内容（input_kind="text" 时用；CSV/tab/分号都行）
       dataset_name     : 数据集名（用于展示）
-      protocol_context : 上一步实验方案的简要上下文（可选，喂给 AI）
+      protocol_context : 上一步实验方案的上下文（情况一：含实验步骤/设备）
+      input_kind       : 输入类型 "text" | "xlsx" | "image"
+      file_base64      : xlsx / image 的二进制内容（base64 编码）
+      media_type       : 图片的 MIME 类型（如 image/png），仅 image 用
+      experiment_steps : 用户后补的实验步骤（情况二：直接上传数据后手填）
 
     返回：统一格式的字典
       {"ok": True,  "data": <AnalysisOutput>, "error": None}   成功
-      {"ok": False, "data": None,             "error": "..."}  CSV 无法解析
+      {"ok": False, "data": None,             "error": "..."}  数据无法解析
 
     说明：
-      - "CSV 解析失败"是唯一的硬错误（data 为 None），由路由转成 HTTP 400。
-      - Claude API 失败不算失败：ai_explanation 走本地兜底，data 照常返回。
+      - "数据解析失败"是唯一的硬错误（data 为 None），由路由转成 HTTP 400。
+      - Claude API 失败不算失败：ai_explanation / error_diagnosis 走本地兜底，
+        data 照常返回。
     """
-    # ── 第 1 步：解析 CSV（失败=硬错误）──────────────────────
+    # ── 第 1 步：按输入类型加载数据（失败=硬错误）────────────
     try:
-        df = _parse_csv(csv_text)
+        df = _load_dataframe(input_kind, csv_text, file_base64, media_type)
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
             "data": None,
-            "error": f"CSV 解析失败：{exc}。请检查数据格式是否正确。",
+            "error": f"数据解析失败：{exc}。请检查文件/格式是否正确。",
         }
 
     # ── 第 2 步：构建数值视图、识别数值列 ────────────────────
@@ -532,8 +806,15 @@ def analyze_dataset(
 
     n_rows, n_cols = int(df.shape[0]), int(df.shape[1])
 
-    # ── 第 4 步：AI 解读（失败自动兜底，不影响上面的程序结果）─
-    ai_explanation = _ai_explain(
+    # ── 第 4 步：构建"步骤上下文"，喂给 AI 做错误诊断 ─────────
+    # 情况二（用户手填的 experiment_steps）优先；否则用情况一的 protocol_context。
+    steps_context = (
+        experiment_steps if (experiment_steps and experiment_steps.strip())
+        else protocol_context
+    )
+
+    # ── 第 5 步：AI 解读 + 逐问题诊断（失败自动兜底）──────────
+    ai = _ai_diagnose(
         dataset_name=dataset_name,
         n_rows=n_rows,
         n_cols=n_cols,
@@ -541,10 +822,10 @@ def analyze_dataset(
         quality_level=level,
         statistics=statistics,
         issues=issues,
-        protocol_context=protocol_context,
+        steps_context=steps_context,
     )
 
-    # ── 第 5 步：组装成 AnalysisOutput ───────────────────────
+    # ── 第 6 步：组装成 AnalysisOutput ───────────────────────
     data = {
         "dataset_name": dataset_name,
         "row_count": n_rows,
@@ -554,6 +835,7 @@ def analyze_dataset(
         "issues": issues,
         "statistics": statistics,
         "chart_data": chart_data,
-        "ai_explanation": ai_explanation,
+        "ai_explanation": ai["ai_explanation"],
+        "error_diagnosis": ai["error_diagnosis"],   # ★ 新增：逐问题错误诊断
     }
     return {"ok": True, "data": data, "error": None}

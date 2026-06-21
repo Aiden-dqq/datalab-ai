@@ -12,7 +12,21 @@
 # ============================================================
 
 import os
+import sys
 import json
+import logging
+
+# ─── 修复 Windows 控制台中文打印崩溃 ──────────────────────
+# Windows 默认控制台编码是 cp1252（或 gbk），无法编码中文字符，
+# 导致任何含中文的 print() 抛 UnicodeEncodeError —— 这会把本应优雅
+# 降级的逻辑（如 Claude 调用失败回退模板）直接变成 500 错误。
+# 这里把标准输出/错误流统一重配成 UTF-8，从根上避免该问题。
+# C++ 类比：相当于把 std::cout 的 locale 设成 UTF-8。
+for _stream in (sys.stdout, sys.stderr):
+    # reconfigure 是 Python 3.7+ 文本流的方法；某些环境下流可能没有该方法，故加保护
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
 from dotenv import load_dotenv                 # 从 .env 文件加载环境变量
 load_dotenv()                                  # 自动找项目根目录的 .env，把里面的 KEY=VALUE 写入环境变量
 
@@ -29,6 +43,9 @@ from protocol import generate_protocol
 
 # 导入功能 B（Data Analyzer）的分析函数
 from analyze import analyze_dataset
+
+# 导入功能 C（Report Generator）的报告生成函数
+from report import generate_report as build_report
 
 # ─── 创建 FastAPI 应用实例 ────────────────────────────────
 # C++ 类比：FastAPI app;  相当于 new FastAPI()
@@ -126,11 +143,15 @@ class ProtocolInput(BaseModel):
 class ReportRequest(BaseModel):
     """
     POST /api/report 的请求体。
-    protocol 和 analysis 均可选，但缺少时会在 warnings 里说明。
-    user_requirements 是用户填写的自定义格式要求（可选）。
+
+    ★ 这里故意用"普通字典(dict)"而不是严格的 ProtocolInput/AnalysisInput：
+      前端传来的 protocol/analysis 可能带额外字段（chart_data、error_diagnosis）
+      或偶尔缺字段。用严格模型会触发 422（前端就会看到"后端服务不可用"）。
+      改成宽松 dict 后，报告逻辑在 report.py 里用 .get() 防御式读取，
+      缺字段也不会报错，从根上消除 422。
     """
-    protocol: Optional[ProtocolInput] = None
-    analysis: Optional[AnalysisInput] = None
+    protocol: Optional[dict] = None
+    analysis: Optional[dict] = None
     user_requirements: Optional[str] = None  # 用户自定义格式/关注点
 
 class ReportSections(BaseModel):
@@ -463,7 +484,10 @@ AI 解读：
     # ── 调用 Claude API ───────────────────────────────────
     resp = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2500,
+        # max_tokens 必须大到能装下完整的五章节报告。原值 2500 在"有完整
+        # protocol+analysis 数据"时会把 JSON 输出截断，导致后面 json.loads
+        # 解析失败 → 报告接口 500。8000 对五章节中文报告足够。
+        max_tokens=8000,
         system=system,
         messages=[{"role": "user", "content": user_msg}],
     )
@@ -532,18 +556,26 @@ async def create_protocol(req: ProtocolRequest) -> dict:
     return generate_protocol(goal=req.goal, constraints=req.constraints)
 
 
-# ─── 功能 B：Data Analyzer（数据质量分析）──────────────────
+# ─── 功能 B：Data Analyzer（数据质量分析 + 错误诊断）──────────
 # 请求体模型：前端 analyze 页面 POST 过来的 JSON
 # C++ 类比：
 #   struct AnalyzeRequest {
-#     string csv_text;                      // CSV 文本内容（必填）
-#     string dataset_name = "experiment.csv"; // 数据集名（可选，有默认值）
-#     optional<string> protocol_context;    // 上一步方案的上下文（可选）
+#     string csv_text = "";                 // 文本表格内容（CSV/tab/分号）
+#     string dataset_name = "experiment.csv";
+#     optional<string> protocol_context;    // 情况一：方案上下文（含步骤/设备）
+#     string input_kind = "text";           // "text" | "xlsx" | "image"
+#     optional<string> file_base64;         // xlsx/image 的二进制(base64)
+#     optional<string> media_type;          // 图片 MIME，如 image/png
+#     optional<string> experiment_steps;    // 情况二：用户后补的实验步骤
 #   };
 class AnalyzeRequest(BaseModel):
-    csv_text: str                                      # CSV 文本（必填）
+    csv_text: str = ""                                 # 文本表格内容（可空，xlsx/image 时不用）
     dataset_name: str = "experiment.csv"               # 数据集名（可选）
-    protocol_context: Optional[str] = None             # 实验方案上下文（可选）
+    protocol_context: Optional[str] = None             # 实验方案上下文（情况一，可选）
+    input_kind: str = "text"                           # 输入类型：text/xlsx/image
+    file_base64: Optional[str] = None                  # xlsx/image 的 base64 内容
+    media_type: Optional[str] = None                   # 图片 MIME 类型（image 时用）
+    experiment_steps: Optional[str] = None             # 用户后补的实验步骤（情况二）
 
 
 @app.post(
@@ -574,8 +606,12 @@ async def create_analysis(req: AnalyzeRequest) -> dict:
         csv_text=req.csv_text,
         dataset_name=req.dataset_name,
         protocol_context=req.protocol_context,
+        input_kind=req.input_kind,
+        file_base64=req.file_base64,
+        media_type=req.media_type,
+        experiment_steps=req.experiment_steps,
     )
-    # 唯一的硬错误：CSV 解析失败 → 返回 400，前端 errBody.detail 显示提示
+    # 唯一的硬错误：数据解析失败 → 返回 400，前端 errBody.detail 显示提示
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
     # 成功：直接返回 AnalysisOutput（前端 setResult(data) 直接用）
@@ -590,76 +626,30 @@ async def root() -> dict:
 
 @app.post(
     "/api/report",
-    response_model=ReportResponse,
     summary="生成实验报告",
     description=(
         "接收实验方案（protocol）、分析结果（analysis）和用户格式要求，"
-        "调用 Claude 生成五章节 Markdown 报告。"
-        "API 不可用时自动回退本地模板，保证 demo 不崩。"
+        "委托 report.py 调用 Claude 生成五章节 Markdown 报告。"
+        "API 不可用时自动回退本地模板，始终返回 ok=True，保证 demo 不崩。"
     ),
 )
-async def generate_report(req: ReportRequest) -> ReportResponse:
+async def generate_report(req: ReportRequest) -> dict:
     """
-    报告生成主流程：
-    1. 收集 warnings（数据不完整时说明）
-    2. 若有 ANTHROPIC_API_KEY：调用 Claude
-    3. 若 Claude 失败（无 Key / 网络错误 / JSON 解析失败）：回退本地模板
-    4. 拼装 Markdown 并返回
+    报告生成接口（逻辑已抽到 report.py，这里只做转发）。
 
-    ★ 核心保证：Results 中的数值来自 req.analysis.statistics，不编造
+    前端发来 { protocol, analysis, user_requirements }，
+    build_report() 内部：
+      - 用结构化输出调用 Claude（强制合法 JSON，杜绝坏 JSON 崩溃）
+      - 任何失败都回退本地模板
+      - 始终返回 { ok: True, title, markdown, sections, generated_from, warnings }
+
+    ★ 不再用严格 pydantic 校验请求体 → 不会 422；report.py 内部不抛异常 → 不会 500。
     """
-    warnings: list[str] = []
-
-    # 数据完整性检查 → 填充 warnings
-    if req.protocol is None:
-        warnings.append(
-            "未提供实验方案（Protocol）—— Introduction / Method 章节内容将有限"
-        )
-    if req.analysis is None:
-        warnings.append(
-            "未提供数据分析结果（Analysis）—— Results 章节将无法给出具体实验数值"
-        )
-
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    title = req.protocol.title if req.protocol else "实验报告"
-
-    # ── 尝试调用 Claude ───────────────────────────────────
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-
-    if api_key:
-        try:
-            d = _call_claude(req.protocol, req.analysis, req.user_requirements)
-
-            sections = ReportSections(
-                introduction=d["introduction"],
-                method=d["method"],
-                results=d["results"],
-                discussion=d["discussion"],
-                conclusion=d["conclusion"],
-            )
-            footer = f"DataLab AI · Claude 自动生成 · {now}"
-
-            return ReportResponse(
-                title=title,
-                markdown=_assemble_markdown(title, sections, footer),
-                sections=sections,
-                generated_from={
-                    "has_protocol": req.protocol is not None,
-                    "has_analysis": req.analysis is not None,
-                    "dataset_name": req.analysis.dataset_name if req.analysis else None,
-                },
-                warnings=warnings,
-            )
-
-        except Exception as e:
-            # Claude 调用失败 → 追加 warning，继续走 fallback
-            print(f"[WARN] Claude API 失败，回退模板：{type(e).__name__}: {e}")
-            warnings.append(f"AI 生成失败（{type(e).__name__}），已使用本地模板报告")
-    else:
-        warnings.append("未配置 ANTHROPIC_API_KEY，使用本地模板报告（功能完整，数值来自真实数据）")
-
-    # ── 回退：本地模板 ─────────────────────────────────────
-    return _fallback_report(req.protocol, req.analysis, warnings)
+    return build_report(
+        protocol=req.protocol,
+        analysis=req.analysis,
+        user_requirements=req.user_requirements,
+    )
 
 
 # ─── 入口 ────────────────────────────────────────────────
