@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import EnglishTextPatch from "../components/EnglishTextPatch";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -43,7 +42,6 @@ export default function RootLayout({
           </div>
         </header>
 
-        <EnglishTextPatch />
         {children}
       </body>
     </html>
