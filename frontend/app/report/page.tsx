@@ -285,9 +285,23 @@ export default function ReportPage() {
     setProtocol(proto as ProtocolOutput | null);
     setAnalysis(analysis);
 
-    // 如果已有保存的报告，直接展示
+    // 如果已有保存的报告，直接展示——但要先校验它是"完整的"。
+    // ★ 早期后端异常时可能存下过"残报告"（某些章节为空字符串）。
+    //   如果直接恢复，就会出现"Method/Results/Discussion 是空白"的现象。
+    //   这里只在五章节都非空时才恢复缓存；否则丢弃它，让用户重新生成一份完整的。
     if (session?.report) {
-      setReport(session.report);
+      const s = session.report.sections;
+      const allFilled =
+        !!s &&
+        !!s.introduction?.trim() &&
+        !!s.method?.trim() &&
+        !!s.results?.trim() &&
+        !!s.discussion?.trim() &&
+        !!s.conclusion?.trim();
+      if (allFilled) {
+        setReport(session.report);
+      }
+      // 不完整 → 不恢复（页面会显示"生成报告"按钮，点一下即可得到完整报告）
     }
   }, []);
 
