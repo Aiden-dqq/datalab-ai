@@ -1,7 +1,11 @@
 import os
 import json
+from tracemalloc import start
 from typing import Optional
+from urllib import response
 from xmlrpc import client
+
+from matplotlib import text
 
 
 PROTOCOL_JSON_SCHEMA = {
@@ -159,7 +163,7 @@ def generate_protocol(goal: str, constraints: Optional[str] = None) -> dict:
         client = anthropic.Anthropic(api_key=api_key)
 
         response = client.messages.create(
-            model="claude-sonnet-4-6",            
+            model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
             max_tokens=4000,
             system=SYSTEM_PROMPT,
             messages=[
@@ -184,6 +188,25 @@ def generate_protocol(goal: str, constraints: Optional[str] = None) -> dict:
 
         if not text:
             raise ValueError("No text content found in the response")
+
+        text = text.strip()
+
+        # Claude may sometimes wrap JSON in ```json ... ``` fences.
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text
+            text = text.rsplit("```", 1)[0].strip()
+
+        # Claude may sometimes add a short sentence before/after JSON.
+        # Extract the JSON object safely.
+        start = text.find("{")
+        end = text.rfind("}")
+
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError(
+                f"Claude did not return a valid JSON object. Raw response: {text[:300]}"
+            )
+
+        text = text[start:end + 1]
 
         protocol = json.loads(text)
         protocol = _sync_csv_template(protocol)
