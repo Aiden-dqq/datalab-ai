@@ -32,6 +32,8 @@ from typing import Optional, Any
 
 import pandas as pd             # 数据分析主库（这一步的核心）
 import numpy as np              # 数值计算（pandas 底层依赖）
+import sentry_sdk               # 错误监控：把被"吞掉"的异常上报到 Sentry
+                               # （未配置 SENTRY_DSN 时，capture_exception 是安全的空操作）
 
 
 # ─────────────────────────────────────────────────────────────
@@ -746,6 +748,11 @@ def _ai_diagnose(
         }
 
     except Exception:  # noqa: BLE001  任何异常都安静降级，绝不让接口崩
+        # 先把异常上报 Sentry（带标签便于筛选功能2 / AI 诊断阶段），再降级
+        with sentry_sdk.new_scope() as scope:
+            scope.set_tag("feature", "analyze")
+            scope.set_tag("stage", "ai_diagnose")
+            sentry_sdk.capture_exception()   # 无参=捕获当前正在处理的异常
         return _fallback_both()
 
 
@@ -787,6 +794,12 @@ def analyze_dataset(
     try:
         df = _load_dataframe(input_kind, csv_text, file_base64, media_type)
     except Exception as exc:  # noqa: BLE001
+        # 数据解析失败（坏 CSV / Excel / 图片）也上报 Sentry，再返回硬错误
+        with sentry_sdk.new_scope() as scope:
+            scope.set_tag("feature", "analyze")
+            scope.set_tag("stage", "load_dataframe")
+            scope.set_tag("input_kind", input_kind)
+            sentry_sdk.capture_exception(exc)
         return {
             "ok": False,
             "data": None,

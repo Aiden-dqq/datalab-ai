@@ -27,8 +27,35 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8")
 
+from pathlib import Path
 from dotenv import load_dotenv                 # 从 .env 文件加载环境变量
-load_dotenv()                                  # 自动找项目根目录的 .env，把里面的 KEY=VALUE 写入环境变量
+# 优先加载与本文件同目录的 backend/.env（不依赖启动时的工作目录）；
+# 找不到再退回 python-dotenv 的默认搜索（向上层目录找）。
+# 这样无论从 backend/ 还是项目根启动，都能稳定读到 KEY。
+_env_path = Path(__file__).with_name(".env")
+if _env_path.exists():
+    load_dotenv(_env_path)
+else:
+    load_dotenv()
+
+# ─── Sentry 错误监控（功能2 等模块的异常会上报到 Sentry）──────
+# 只有在 .env 里配了 SENTRY_DSN 时才启用：没配就完全跳过，本地开发照常跑。
+# 这里在创建 FastAPI app 之前 init，sentry-sdk 会自动挂上 FastAPI 集成，
+# 路由里未捕获的异常会自动上报；功能2 内部"吞掉"的异常则在 analyze.py 里
+# 手动 capture_exception 上报（否则它们被优雅降级后就永远看不到了）。
+import sentry_sdk
+_sentry_dsn = os.getenv("SENTRY_DSN", "").strip()
+if _sentry_dsn:
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        # 环境标识：方便在 Sentry 里区分本地 / 生产
+        environment=os.getenv("SENTRY_ENVIRONMENT", "development"),
+        send_default_pii=False,        # 不收集用户身份信息（隐私安全）
+        traces_sample_rate=0.0,        # 只做错误监控，不开性能追踪（省额度）
+    )
+    print("[Sentry] 已启用错误监控")
+else:
+    print("[Sentry] 未配置 SENTRY_DSN，跳过（仅本地日志）")
 
 from fastapi import FastAPI, HTTPException     # 核心框架类 + HTTP 异常（用于返回 4xx 错误）
 from fastapi.middleware.cors import CORSMiddleware  # 跨域资源共享中间件
