@@ -5,10 +5,8 @@ fastapi==0.115.5        # Web 框架核心
 uvicorn[standard]==0.32.1   # ASGI 服务器（[standard] 包含 websockets 和 httptools 加速）
 pydantic==2.10.3        # 数据验证库（FastAPI 内部也依赖它）
 python-dotenv==1.0.1    # 读取 .env 环境变量文件（后续配置 API Key 用）
-
-      # Anthropic Claude SDK，用于调用 Claude 生成报告
 pandas==2.2.3           # 数据分析库（类似 C++ 的 Eigen，但专为表格数据）
 numpy==1.26.4           # 数值计算库（pandas 的底层依赖）
-anthropic==0.40.0       # Claude API 客户端
+anthropic==0.40.0       # Claude 官方 Python SDK（调用 Claude API 生成报告/实验方案）
 python-multipart==0.0.12  # 支持 multipart/form-data 文件上传
 sentry-sdk==2.63.0        # 错误监控，捕获异常并上报到 Sentry (完成功能二模块)

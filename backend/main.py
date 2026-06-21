@@ -13,18 +13,22 @@
 
 import os
 import json
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from datetime import datetime, timezone
-from typing import Optional, Any
-import uvicorn
-from dotenv import load_dotenv
+from dotenv import load_dotenv                 # 从 .env 文件加载环境变量
+load_dotenv()                                  # 自动找项目根目录的 .env，把里面的 KEY=VALUE 写入环境变量
 
-# 从 .env 文件读取 ANTHROPIC_API_KEY 等环境变量
-load_dotenv()
+from fastapi import FastAPI                    # 核心框架类
+from fastapi.middleware.cors import CORSMiddleware  # 跨域资源共享中间件
+from pydantic import BaseModel                 # 数据验证库（类似 C++ 的 struct + 验证）
+from datetime import datetime, timezone        # 日期时间处理
+from typing import Optional, Any               # 类型注解：可选值 / 任意类型
+import uvicorn                                 # ASGI 服务器（类似 C++ 里的 HTTP 服务器）
 
-# ─── FastAPI 应用实例 ─────────────────────────────────────
+# 导入功能 A（Protocol Builder）的生成函数
+# from protocol import generate_protocol ≈ C++ 的 #include "protocol.h" 后调用其中的函数
+from protocol import generate_protocol
+
+# ─── 创建 FastAPI 应用实例 ────────────────────────────────
+# C++ 类比：FastAPI app;  相当于 new FastAPI()
 app = FastAPI(
     title="DataLab AI Backend",
     description="DataLab AI 实验工作流平台后端 API",
@@ -493,6 +497,39 @@ async def health_check() -> HealthResponse:
     )
 
 
+# ─── 功能 A：Protocol Builder（实验方案生成）────────────────
+# 请求体模型：前端 POST 过来的 JSON 会被自动解析成这个对象
+# C++ 类比：
+#   struct ProtocolRequest {
+#     string goal;                 // 实验目标（必填）
+#     optional<string> constraints; // 限制条件（可选）
+#   };
+class ProtocolRequest(BaseModel):
+    goal: str                              # 实验目标（必填）
+    constraints: Optional[str] = None      # 限制条件（可选，默认 None）
+
+
+# @app.post 注册一个 POST 接口（生成类操作通常用 POST，因为要提交数据）
+@app.post(
+    "/api/protocol",
+    summary="生成实验方案",
+    description="接收实验目标，调用 Claude 生成符合 ProtocolOutput 结构的方案",
+)
+async def create_protocol(req: ProtocolRequest) -> dict:
+    """
+    实验方案生成接口
+
+    前端发来 { "goal": "...", "constraints": "..." }，
+    后端调用 generate_protocol() 生成方案，统一返回：
+      { "ok": bool, "data": <方案或mock>, "error": <错误说明或null> }
+
+    无论成功失败，data 里都有一份可用的方案，前端不会白屏。
+    """
+    # FastAPI 已经把请求 JSON 解析成 req 对象，直接取字段调用即可
+    return generate_protocol(goal=req.goal, constraints=req.constraints)
+
+
+# ─── 根路径路由 ────────────────────────────────────────────
 @app.get("/", summary="根路径")
 async def root() -> dict:
     return {"name": "DataLab AI Backend", "docs": "/docs", "health": "/api/health"}
